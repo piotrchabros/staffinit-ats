@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CV, Candidate, Role, Rubric, Score
+from .models import AnonymizedCV, CV, Candidate, Evaluation, Role, Rubric, Score, ScreeningSet
 
 
 @admin.register(Candidate)
@@ -42,3 +42,24 @@ class ScoreAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(ScreeningSet)
+class ScreeningSetAdmin(admin.ModelAdmin):
+    list_display = ("role", "candidate", "status", "model_version", "updated_at")
+    list_filter = ("status",)
+    raw_id_fields = ("role", "candidate", "cv")
+
+
+@admin.register(AnonymizedCV)
+class AnonymizedCVAdmin(admin.ModelAdmin):
+    list_display = ("role", "candidate", "status", "model_version", "updated_at")
+    list_filter = ("status",)
+    raw_id_fields = ("role", "candidate", "cv")
+
+
+@admin.register(Evaluation)
+class EvaluationAdmin(admin.ModelAdmin):
+    list_display = ("role", "candidate", "status", "model_version", "updated_at")
+    list_filter = ("status",)
+    raw_id_fields = ("role", "candidate", "cv")

@@ -202,6 +202,9 @@ LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'role_list'
 LOGOUT_REDIRECT_URL = 'login'
 
+# Agency branding shown on client-facing anonymized CVs (Feature 2).
+AGENCY_NAME = os.environ.get("AGENCY_NAME", "StaffInit")
+
 # Uploaded CV files (raw_file on the CV model). Local dev writes under media/;
 # production should use object storage in the same EU region as the database.
 MEDIA_URL = 'media/'

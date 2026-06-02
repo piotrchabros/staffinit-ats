@@ -7,15 +7,18 @@
   </div>
   {% if roles %}
     <table>
-      <thead><tr><th>Title</th><th>Client</th><th>Candidates</th><th>Scored</th><th>Created</th></tr></thead>
+      <thead><tr>
+        <th scope="col">Title</th><th scope="col">Client</th><th scope="col">Candidates</th>
+        <th scope="col">Scored</th><th scope="col">Created</th>
+      </tr></thead>
       <tbody>
         {% for role in roles %}
           <tr>
-            <td><a href="{% url 'role_detail' role.pk %}">{{ role.title }}</a></td>
-            <td class="muted">{{ role.client|default:"—" }}</td>
-            <td>{{ role.n_candidates }}</td>
-            <td>{{ role.n_scored }}</td>
-            <td class="muted">{{ role.created_at|date:"Y-m-d" }}</td>
+            <td data-label="Title"><a href="{% url 'role_detail' role.pk %}">{{ role.title }}</a></td>
+            <td data-label="Client" class="muted">{{ role.client|default:"—" }}</td>
+            <td data-label="Candidates">{{ role.n_candidates }}</td>
+            <td data-label="Scored">{{ role.n_scored }}</td>
+            <td data-label="Created" class="muted">{{ role.created_at|date:"Y-m-d" }}</td>
           </tr>
         {% endfor %}
       </tbody>

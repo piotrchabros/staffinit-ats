@@ -263,3 +263,170 @@ class Score(models.Model):
         self.error = str(error)[:5000]
         self.status = self.Status.FAILED
         self.save()
+
+
+class ScreeningSet(models.Model):
+    """AI-generated screening questions for one candidate on one role.
+
+    Unlike Score, this is a working prep aid, not a comparable source-of-truth
+    artifact — so it is regenerable: one current set per (role, candidate), and
+    regenerating overwrites it in place.
+
+    questions shape (JSON): [{"topic": str, "question": str, "what_to_listen_for": str}]
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        GENERATED = "generated", "Generated"
+        FAILED = "failed", "Failed"
+
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="screening_sets")
+    candidate = models.ForeignKey(
+        Candidate, on_delete=models.CASCADE, related_name="screening_sets"
+    )
+    cv = models.ForeignKey(CV, on_delete=models.CASCADE, related_name="screening_sets")
+
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    questions = models.JSONField(default=list)
+    model_version = models.CharField(max_length=128, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["role", "candidate"], name="uniq_screening_role_candidate"
+            ),
+        ]
+
+    def __str__(self):
+        return f"ScreeningSet<role={self.role_id} cand={self.candidate_id} {self.status}>"
+
+    def mark_generated(self, *, questions, model_version=""):
+        self.questions = questions
+        if model_version:
+            self.model_version = model_version
+        self.error = ""
+        self.status = self.Status.GENERATED
+        self.save()
+
+    def mark_failed(self, error):
+        self.error = str(error)[:5000]
+        self.status = self.Status.FAILED
+        self.save()
+
+
+class AnonymizedCV(models.Model):
+    """An anonymized, structured rewrite of a candidate's CV for client submission.
+
+    PII (name, contact details) is stripped so the agency can present the
+    candidate without revealing identity. Regenerable, like ScreeningSet.
+
+    data shape (JSON):
+        {headline, summary, years_experience, skills: [str],
+         experience: [{role_title, industry, period, highlights: [str]}],
+         education: [{qualification, field, period}]}
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        GENERATED = "generated", "Generated"
+        FAILED = "failed", "Failed"
+
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="anonymized_cvs")
+    candidate = models.ForeignKey(
+        Candidate, on_delete=models.CASCADE, related_name="anonymized_cvs"
+    )
+    cv = models.ForeignKey(CV, on_delete=models.CASCADE, related_name="anonymized_cvs")
+
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    data = models.JSONField(default=dict)
+    model_version = models.CharField(max_length=128, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["role", "candidate"], name="uniq_anoncv_role_candidate"
+            ),
+        ]
+
+    def __str__(self):
+        return f"AnonymizedCV<role={self.role_id} cand={self.candidate_id} {self.status}>"
+
+    def mark_generated(self, *, data, model_version=""):
+        self.data = data
+        if model_version:
+            self.model_version = model_version
+        self.error = ""
+        self.status = self.Status.GENERATED
+        self.save()
+
+    def mark_failed(self, error):
+        self.error = str(error)[:5000]
+        self.status = self.Status.FAILED
+        self.save()
+
+
+class Evaluation(models.Model):
+    """A post-screening evaluation of a candidate, grounded in the call transcript.
+
+    The transcript is recruiter-provided input (unlike screening/anon which derive
+    purely from the CV). One per (role, candidate); re-running with an updated
+    transcript overwrites the result.
+
+    result shape (JSON):
+        {recommendation: "strong_yes|yes|maybe|no", headline, summary,
+         strengths: [str], concerns: [str],
+         criteria: [{name, assessment, evidence}]}
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        GENERATED = "generated", "Generated"
+        FAILED = "failed", "Failed"
+
+    RECOMMENDATIONS = {"strong_yes", "yes", "maybe", "no"}
+
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="evaluations")
+    candidate = models.ForeignKey(
+        Candidate, on_delete=models.CASCADE, related_name="evaluations"
+    )
+    cv = models.ForeignKey(CV, on_delete=models.CASCADE, related_name="evaluations")
+
+    transcript = models.TextField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    result = models.JSONField(default=dict)
+    model_version = models.CharField(max_length=128, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["role", "candidate"], name="uniq_evaluation_role_candidate"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Evaluation<role={self.role_id} cand={self.candidate_id} {self.status}>"
+
+    def mark_generated(self, *, result, model_version=""):
+        self.result = result
+        if model_version:
+            self.model_version = model_version
+        self.error = ""
+        self.status = self.Status.GENERATED
+        self.save()
+
+    def mark_failed(self, error):
+        self.error = str(error)[:5000]
+        self.status = self.Status.FAILED
+        self.save()

@@ -12,8 +12,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ats.models import CV, Candidate, Role, Rubric, Score
+from ats.models import (
+    CV,
+    AnonymizedCV,
+    Candidate,
+    Evaluation,
+    Role,
+    Rubric,
+    Score,
+    ScreeningSet,
+)
 
+from .anonymize import AnonymizationError, AnonymizationService
+from .evaluate import EvaluationError, EvaluationService
+from .screening import ScreeningError, ScreeningService
 from .service import ScoringError, ScoringService
 
 
@@ -117,3 +129,112 @@ def score_role(role_id: int, *, service: ScoringService | None = None) -> RoleSc
         role_id=role_id, status=Score.Status.SCORED
     ).count() - summary.scored
     return summary
+
+
+# --------------------------------------------------------------------------- #
+# Screening questions (Feature 1)                                             #
+# --------------------------------------------------------------------------- #
+def ensure_screening_set(*, role: Role, candidate: Candidate, cv: CV) -> ScreeningSet:
+    """Idempotently get the (role, candidate) screening set, pinning the CV used."""
+    sset, created = ScreeningSet.objects.get_or_create(
+        role=role, candidate=candidate, defaults={"cv": cv, "status": ScreeningSet.Status.PENDING}
+    )
+    if not created and sset.cv_id != cv.pk:
+        sset.cv = cv
+        sset.status = ScreeningSet.Status.PENDING
+        sset.save(update_fields=["cv", "status"])
+    return sset
+
+
+def generate_screening(screening_id: int, *, service: ScreeningService | None = None) -> ScreeningSet:
+    """Generate questions for a screening set. Reuses the active rubric for topic
+    context (criteria are just hints to the prompt)."""
+    sset = ScreeningSet.objects.select_related("role", "cv").get(pk=screening_id)
+    if service is None:
+        from .screening import get_default_service
+
+        service = get_default_service()
+    rubric = Rubric.active()
+    criteria = rubric.criteria if rubric else []
+    try:
+        questions, model_version = service.generate(
+            jd_text=sset.role.jd_text,
+            cv_text=sset.cv.parsed_text,
+            rubric_criteria=criteria,
+        )
+    except ScreeningError as exc:
+        sset.mark_failed(exc)
+        return sset
+    sset.mark_generated(questions=questions, model_version=model_version)
+    return sset
+
+
+# --------------------------------------------------------------------------- #
+# Anonymized branded CV (Feature 2)                                           #
+# --------------------------------------------------------------------------- #
+def ensure_anonymized_cv(*, role: Role, candidate: Candidate, cv: CV) -> AnonymizedCV:
+    """Idempotently get the (role, candidate) anonymized CV, pinning the CV used."""
+    acv, created = AnonymizedCV.objects.get_or_create(
+        role=role, candidate=candidate, defaults={"cv": cv, "status": AnonymizedCV.Status.PENDING}
+    )
+    if not created and acv.cv_id != cv.pk:
+        acv.cv = cv
+        acv.status = AnonymizedCV.Status.PENDING
+        acv.save(update_fields=["cv", "status"])
+    return acv
+
+
+def generate_anonymized_cv(anon_id: int, *, service: AnonymizationService | None = None) -> AnonymizedCV:
+    acv = AnonymizedCV.objects.select_related("candidate", "cv").get(pk=anon_id)
+    if service is None:
+        from .anonymize import get_default_service
+
+        service = get_default_service()
+    try:
+        data, model_version = service.anonymize(
+            cv_text=acv.cv.parsed_text,
+            candidate_name=acv.candidate.full_name,
+            candidate_email=acv.candidate.email,
+        )
+    except AnonymizationError as exc:
+        acv.mark_failed(exc)
+        return acv
+    acv.mark_generated(data=data, model_version=model_version)
+    return acv
+
+
+# --------------------------------------------------------------------------- #
+# Transcript-based evaluation (Feature 3)                                     #
+# --------------------------------------------------------------------------- #
+def set_transcript(*, role: Role, candidate: Candidate, cv: CV, transcript: str) -> Evaluation:
+    """Upsert the (role, candidate) evaluation with a new transcript, reset to pending."""
+    ev, _created = Evaluation.objects.get_or_create(
+        role=role, candidate=candidate, defaults={"cv": cv}
+    )
+    ev.cv = cv
+    ev.transcript = transcript.strip()
+    ev.status = Evaluation.Status.PENDING
+    ev.save()
+    return ev
+
+
+def generate_evaluation(eval_id: int, *, service: EvaluationService | None = None) -> Evaluation:
+    ev = Evaluation.objects.select_related("role", "cv").get(pk=eval_id)
+    if service is None:
+        from .evaluate import get_default_service
+
+        service = get_default_service()
+    rubric = Rubric.active()
+    criteria = rubric.criteria if rubric else []
+    try:
+        result, model_version = service.evaluate(
+            jd_text=ev.role.jd_text,
+            cv_text=ev.cv.parsed_text,
+            rubric_criteria=criteria,
+            transcript=ev.transcript,
+        )
+    except EvaluationError as exc:
+        ev.mark_failed(exc)
+        return ev
+    ev.mark_generated(result=result, model_version=model_version)
+    return ev

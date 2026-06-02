@@ -43,8 +43,26 @@ Thresholds also live in `ats/templatetags/score_extras.py` (`score_band`).
 - **One job per surface, subtraction default.** No gradients, no card grids, no
   icons-in-circles. Cards only when the card is the interaction.
 
-## Known gaps (tracked, not done in v1 polish)
+## Responsive
 
-- Responsive: the 5-column scorecard table needs an intentional mobile layout.
-- Accessibility: audit keyboard nav, focus order, contrast, 44px touch targets.
+Tables become **stacked cards** below 720px (not horizontal overflow): `thead`
+hides, each row is a card, and `td::before` shows the column label from
+`data-label`. The score hero and inline criteria stay legible. The add-candidate
+grid collapses to one column. Control rows wrap.
+
+## Accessibility
+
+- Skip-to-content link → `#main`; `banner` + `main` landmarks.
+- Every form control has an associated `<label>` (visible or `visually-hidden`);
+  the paste box and rubric `<select>` are labeled; the scorecard table has a
+  `<caption>`; headers use `scope="col"`.
+- Visible focus rings (`:focus-visible`) on links, buttons, summaries, selects.
+- `--accent` is teal-700 (~4.5:1 on white) so link/label text passes WCAG AA.
+  Score bars are `aria-hidden` (decorative); the number carries the value.
+- Touch targets ≥44px on coarse pointers.
+- Rubric filter auto-submits with JS but has an "Apply" button for no-JS/keyboard.
+
+## Known gaps (tracked)
+
 - A brand mark / favicon beyond the wordmark.
+- A full screen-reader pass on a real device (the above is structural, not audited live).
