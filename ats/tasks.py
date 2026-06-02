@@ -16,6 +16,7 @@ from __future__ import annotations
 from procrastinate.contrib.django import app
 
 from ats.scoring.orchestration import (
+    generate_anonymized_cv,
     generate_screening,
     pending_score_ids,
     score_one,
@@ -40,6 +41,11 @@ def score_candidate(*, score_id: int) -> None:
 @app.task(name="generate_screening")
 def generate_screening_task(*, screening_id: int) -> None:
     generate_screening(screening_id)
+
+
+@app.task(name="generate_anonymized_cv")
+def generate_anonymized_cv_task(*, anon_id: int) -> None:
+    generate_anonymized_cv(anon_id)
 
 
 @app.task(name="score_role")

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CV, Candidate, Role, Rubric, Score, ScreeningSet
+from .models import AnonymizedCV, CV, Candidate, Role, Rubric, Score, ScreeningSet
 
 
 @admin.register(Candidate)
@@ -46,6 +46,13 @@ class ScoreAdmin(admin.ModelAdmin):
 
 @admin.register(ScreeningSet)
 class ScreeningSetAdmin(admin.ModelAdmin):
+    list_display = ("role", "candidate", "status", "model_version", "updated_at")
+    list_filter = ("status",)
+    raw_id_fields = ("role", "candidate", "cv")
+
+
+@admin.register(AnonymizedCV)
+class AnonymizedCVAdmin(admin.ModelAdmin):
     list_display = ("role", "candidate", "status", "model_version", "updated_at")
     list_filter = ("status",)
     raw_id_fields = ("role", "candidate", "cv")

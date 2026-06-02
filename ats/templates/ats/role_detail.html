@@ -103,7 +103,11 @@
                 {% if score.error %}<div class="muted" style="font-size:.78rem">{{ score.error|truncatechars:80 }}</div>{% endif %}
               </td>
             {% elif score.status == 'scored' %}
-              <td data-label="Actions"><a href="{% url 'screening_detail' role.pk score.candidate.pk %}">Screening &rarr;</a></td>
+              <td data-label="Actions" style="white-space:nowrap">
+                <a href="{% url 'screening_detail' role.pk score.candidate.pk %}">Screening</a>
+                <span class="muted">&middot;</span>
+                <a href="{% url 'anonymized_cv_detail' role.pk score.candidate.pk %}">Anon CV</a>
+              </td>
             {% else %}
               <td class="actions-empty"></td>
             {% endif %}

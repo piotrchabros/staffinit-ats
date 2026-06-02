@@ -1,0 +1,73 @@
+{% extends "ats/base.html" %}
+{% block title %}Anonymized CV — {{ agency_name }}{% endblock %}
+{% block content %}
+  <style media="print">
+    /* Only the CV document prints — nav, controls, and notes are hidden. */
+    header, .skip, .noprint, .messages { display:none !important; }
+    main { margin:0; max-width:none; }
+    .cv-doc { border:none !important; box-shadow:none !important; }
+  </style>
+
+  <div class="noprint" style="display:flex; align-items:center; gap:.6rem; margin-bottom:1rem">
+    <a class="muted" href="{% url 'role_detail' role.pk %}">&larr; {{ role.title }}</a>
+    <span class="spacer" style="flex:1"></span>
+    <form method="post" action="{% url 'generate_anonymized_cv' role.pk candidate.pk %}" style="margin:0">
+      {% csrf_token %}
+      <button type="submit">{% if anon and anon.status == 'generated' %}Regenerate{% else %}Generate{% endif %}</button>
+    </form>
+    {% if anon and anon.status == 'generated' %}
+      <button class="secondary" type="button" onclick="window.print()">Print / Save PDF</button>
+    {% endif %}
+  </div>
+
+  {% if anon and anon.status == 'generated' and anon.data %}
+    <article class="cv-doc card" style="padding:2rem 2.25rem">
+      <div style="display:flex; align-items:baseline; border-bottom:2px solid var(--accent); padding-bottom:.6rem; margin-bottom:1.25rem">
+        <div style="flex:1">
+          <div class="brand" style="font-size:1.2rem">{{ agency_name }}</div>
+          <div class="muted" style="font-size:.85rem">Candidate profile (anonymized)</div>
+        </div>
+        <div class="muted" style="font-size:.8rem">Ref: R{{ role.pk }}-C{{ candidate.pk }}</div>
+      </div>
+
+      {% if anon.data.headline %}<h1 style="margin:.1rem 0">{{ anon.data.headline }}</h1>{% endif %}
+      <p class="muted" style="margin:.1rem 0 1rem">
+        {% if anon.data.years_experience %}{{ anon.data.years_experience }}+ years experience{% endif %}
+      </p>
+      {% if anon.data.summary %}<p>{{ anon.data.summary }}</p>{% endif %}
+
+      {% if anon.data.skills %}
+        <h2 style="font-size:1rem; margin:1.25rem 0 .4rem">Skills</h2>
+        <div>{% for s in anon.data.skills %}<span class="chip" style="margin:0 .3rem .3rem 0">{{ s }}</span>{% endfor %}</div>
+      {% endif %}
+
+      {% if anon.data.experience %}
+        <h2 style="font-size:1rem; margin:1.4rem 0 .4rem">Experience</h2>
+        {% for e in anon.data.experience %}
+          <div style="margin-bottom:.9rem">
+            <div style="font-weight:600">{{ e.role_title }}{% if e.industry %} <span class="muted" style="font-weight:400">— {{ e.industry }}</span>{% endif %}</div>
+            {% if e.period %}<div class="muted" style="font-size:.85rem">{{ e.period }}</div>{% endif %}
+            {% if e.highlights %}<ul style="margin:.3rem 0 0 1.1rem">{% for h in e.highlights %}<li>{{ h }}</li>{% endfor %}</ul>{% endif %}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      {% if anon.data.education %}
+        <h2 style="font-size:1rem; margin:1.4rem 0 .4rem">Education</h2>
+        {% for ed in anon.data.education %}
+          <div class="muted" style="margin-bottom:.3rem">{{ ed.qualification }}{% if ed.field %}, {{ ed.field }}{% endif %}{% if ed.period %} ({{ ed.period }}){% endif %}</div>
+        {% endfor %}
+      {% endif %}
+    </article>
+    <p class="noprint muted" style="font-size:.8rem; margin-top:.8rem">
+      AI-anonymized from the candidate's CV ({{ anon.model_version }}) and machine-scrubbed of name/email.
+      Review before sending — automated anonymization is not a substitute for a human check.
+    </p>
+  {% elif anon and anon.status == 'failed' %}
+    <p class="muted">Anonymization failed: {{ anon.error|truncatechars:160 }}</p>
+  {% elif anon and anon.status == 'pending' %}
+    <p class="muted">Anonymizing in the background. Refresh in a few seconds.</p>
+  {% else %}
+    <p class="muted">No anonymized CV yet. Click “Generate” to produce a branded, PII-stripped version of this candidate’s CV.</p>
+  {% endif %}
+{% endblock %}

@@ -12,4 +12,6 @@ urlpatterns = [
     path("roles/<int:pk>/score/<int:score_id>/retry/", views.retry_score, name="retry_score"),
     path("roles/<int:pk>/candidate/<int:candidate_id>/screening/", views.screening_detail, name="screening_detail"),
     path("roles/<int:pk>/candidate/<int:candidate_id>/screening/generate/", views.generate_screening, name="generate_screening"),
+    path("roles/<int:pk>/candidate/<int:candidate_id>/anon-cv/", views.anonymized_cv_detail, name="anonymized_cv_detail"),
+    path("roles/<int:pk>/candidate/<int:candidate_id>/anon-cv/generate/", views.generate_anonymized_cv, name="generate_anonymized_cv"),
 ]

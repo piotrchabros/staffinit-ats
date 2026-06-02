@@ -12,8 +12,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ats.models import CV, Candidate, Role, Rubric, Score, ScreeningSet
+from ats.models import (
+    CV,
+    AnonymizedCV,
+    Candidate,
+    Role,
+    Rubric,
+    Score,
+    ScreeningSet,
+)
 
+from .anonymize import AnonymizationError, AnonymizationService
 from .screening import ScreeningError, ScreeningService
 from .service import ScoringError, ScoringService
 
@@ -156,3 +165,37 @@ def generate_screening(screening_id: int, *, service: ScreeningService | None = 
         return sset
     sset.mark_generated(questions=questions, model_version=model_version)
     return sset
+
+
+# --------------------------------------------------------------------------- #
+# Anonymized branded CV (Feature 2)                                           #
+# --------------------------------------------------------------------------- #
+def ensure_anonymized_cv(*, role: Role, candidate: Candidate, cv: CV) -> AnonymizedCV:
+    """Idempotently get the (role, candidate) anonymized CV, pinning the CV used."""
+    acv, created = AnonymizedCV.objects.get_or_create(
+        role=role, candidate=candidate, defaults={"cv": cv, "status": AnonymizedCV.Status.PENDING}
+    )
+    if not created and acv.cv_id != cv.pk:
+        acv.cv = cv
+        acv.status = AnonymizedCV.Status.PENDING
+        acv.save(update_fields=["cv", "status"])
+    return acv
+
+
+def generate_anonymized_cv(anon_id: int, *, service: AnonymizationService | None = None) -> AnonymizedCV:
+    acv = AnonymizedCV.objects.select_related("candidate", "cv").get(pk=anon_id)
+    if service is None:
+        from .anonymize import get_default_service
+
+        service = get_default_service()
+    try:
+        data, model_version = service.anonymize(
+            cv_text=acv.cv.parsed_text,
+            candidate_name=acv.candidate.full_name,
+            candidate_email=acv.candidate.email,
+        )
+    except AnonymizationError as exc:
+        acv.mark_failed(exc)
+        return acv
+    acv.mark_generated(data=data, model_version=model_version)
+    return acv
