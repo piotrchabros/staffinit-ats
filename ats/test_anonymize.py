@@ -64,9 +64,15 @@ class ScrubTests(TestCase):
         self.assertNotIn("anna@x.com", blob)
         self.assertIn("[redacted]", clean["summary"])
 
-    def test_short_tokens_not_redacted(self):
-        # 2-char particles shouldn't nuke unrelated words.
-        clean = scrub_pii({"summary": "Li is an AI expert"}, name="Li")
+    def test_two_char_name_token_is_redacted(self):
+        # Short real names (e.g. "Bo An", "Li Wu") must be redacted.
+        clean = scrub_pii({"summary": "Bo An led the team"}, name="Bo An")
+        self.assertNotIn("Bo", clean["summary"])
+        self.assertNotIn("An ", clean["summary"])
+
+    def test_single_char_initial_not_redacted(self):
+        # 1-char initials are skipped so they don't nuke stray single letters.
+        clean = scrub_pii({"summary": "A strong AI expert"}, name="A")
         self.assertIn("AI expert", clean["summary"])
 
 

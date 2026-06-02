@@ -35,8 +35,22 @@ SECRET_KEY = os.environ.get(
     "django-insecure-dev-only-5ix1wqf4p8xxgt0gu9m52tg2eoz7j2",
 )
 
+# Production posture is driven by an explicit deploy signal (Railway env, or
+# DJANGO_SECURE=true), NOT by DEBUG — so the test suite and local dev never get
+# SSL-redirect / secure-only cookies.
+IS_PRODUCTION = bool(
+    os.environ.get("RAILWAY_ENVIRONMENT")
+    or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    or os.environ.get("DJANGO_SECURE", "").lower() in {"1", "true", "yes"}
+)
+
 # SECURITY WARNING: don't run with debug turned on in production!
+# Default true keeps local `runserver` ergonomic (auto-serves static), but
+# production FORCES it off below — so a deploy that forgets DJANGO_DEBUG can
+# never leak tracebacks.
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes"}
+if IS_PRODUCTION:
+    DEBUG = False
 
 ALLOWED_HOSTS = [
     h.strip()
@@ -44,8 +58,10 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
-# Railway healthchecks arrive with Host: healthcheck.railway.app — must be allowed.
-ALLOWED_HOSTS.append("healthcheck.railway.app")
+# Railway healthchecks arrive with Host: healthcheck.railway.app — allow it ONLY
+# on the deployed instance, not in every environment.
+if IS_PRODUCTION:
+    ALLOWED_HOSTS.append("healthcheck.railway.app")
 
 # Railway (and most PaaS) sit behind a TLS-terminating proxy and expose the
 # public hostname via an env var. Wire it in automatically so a deploy "just
@@ -62,8 +78,9 @@ if _RAILWAY_DOMAIN:
 # (needed for CSRF, secure cookies, and redirects behind Railway's proxy).
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# Production hardening — only when DEBUG is off (i.e. on the deployed instance).
-if not DEBUG:
+# Production hardening — on the deployed instance only (not tied to DEBUG, so
+# the test suite and local dev don't get SSL-redirect / secure-only cookies).
+if IS_PRODUCTION:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_SSL_REDIRECT = True
@@ -183,15 +200,18 @@ USE_TZ = True
 STATIC_URL = 'static/'
 # collectstatic target (baked into the image at build); WhiteNoise serves it.
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+# Manifest (hashed) static storage is enabled by an explicit flag, NOT by DEBUG.
+# The Docker image sets DJANGO_MANIFEST_STATIC=true (at build AND runtime) so the
+# manifest is built by collectstatic and used by WhiteNoise. Tests/local leave it
+# off and use plain storage, so {% static %} resolves without a built manifest.
+_USE_MANIFEST_STATIC = os.environ.get("DJANGO_MANIFEST_STATIC", "false").lower() in {"1", "true", "yes"}
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-    # Manifest storage (hashed names) in production; plain storage in DEBUG so
-    # runserver serves static without a collectstatic step.
     "staticfiles": {
         "BACKEND": (
-            "django.contrib.staticfiles.storage.StaticFilesStorage"
-            if DEBUG
-            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            if _USE_MANIFEST_STATIC
+            else "django.contrib.staticfiles.storage.StaticFilesStorage"
         )
     },
 }
