@@ -88,6 +88,16 @@ class CV(models.Model):
     def __str__(self):
         return f"CV<{self.candidate_id}> @ {self.uploaded_at:%Y-%m-%d}"
 
+    @property
+    def needs_manual_text(self) -> bool:
+        """True when a file was uploaded but no text could be extracted.
+
+        The UI uses this to prompt for a manual paste (scanned/corrupt PDFs).
+        Scoring never runs on an empty CV (it raises ScoringError), so these
+        rows simply wait for text.
+        """
+        return bool(self.raw_file) and not (self.parsed_text or "").strip()
+
 
 class Rubric(models.Model):
     """The single global scoring rubric, versioned.

@@ -83,7 +83,7 @@ class ScoringService:
     # -- internals -------------------------------------------------------
 
     def _parse(self, response: Any, rubric_criteria: list[dict]) -> ScoreResult:
-        tool_input = _extract_tool_input(response)
+        tool_input = extract_tool_input(response, TOOL_NAME)
         if tool_input is None:
             raise ScoringError("Model did not return a submit_score tool call.")
 
@@ -154,12 +154,16 @@ def _normalize_criteria(raw: Any, rubric_criteria: list[dict]) -> dict[str, dict
     return {name: by_name[name] for name in expected}
 
 
-def _extract_tool_input(response: Any) -> dict | None:
+def extract_tool_input(response: Any, tool_name: str) -> dict | None:
+    """Pull the input of the named tool_use block from a Claude response.
+
+    Shared by the scorer and the JD extractor. Handles both SDK objects and
+    dict-shaped blocks (defensive, for test fakes).
+    """
     for block in getattr(response, "content", []) or []:
-        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == TOOL_NAME:
+        if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == tool_name:
             return getattr(block, "input", None)
-        # dict-shaped blocks (defensive, e.g. fakes)
-        if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == TOOL_NAME:
+        if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == tool_name:
             return block.get("input")
     return None
 
