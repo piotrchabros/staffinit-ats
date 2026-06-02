@@ -27,44 +27,53 @@
     </div>
   {% endif %}
 
-  <div style="display:flex; align-items:center; gap:1rem; margin:.5rem 0 1rem">
+  <div style="display:flex; align-items:center; gap:1rem; margin:.5rem 0 1rem; flex-wrap:wrap">
     <span class="chip scored">{{ counts.scored }} scored</span>
     <span class="chip pending">{{ counts.pending }} pending</span>
     <span class="chip failed">{{ counts.failed }} failed</span>
     <span class="spacer" style="flex:1"></span>
     {% if versions %}
-      <form method="get" style="margin:0">
-        <label style="display:inline; margin:0 .3rem 0 0">Rubric</label>
-        <select name="rubric" onchange="this.form.submit()" style="width:auto; display:inline-block">
+      <form method="get" style="margin:0; display:flex; align-items:center; gap:.4rem">
+        <label for="rubric-select" style="display:inline; margin:0">Rubric</label>
+        <select id="rubric-select" name="rubric" onchange="this.form.submit()" style="width:auto">
           {% for v in versions %}
             <option value="{{ v }}" {% if v == selected_version %}selected{% endif %}>v{{ v }}</option>
           {% endfor %}
         </select>
+        {# Auto-submits with JS; this button is the no-JS / keyboard fallback. #}
+        <button class="secondary" type="submit">Apply</button>
       </form>
     {% endif %}
   </div>
 
   {% if scores %}
     <table>
-      <thead><tr><th>Candidate</th><th>Status</th><th>Overall</th><th>Criteria</th><th>Rubric</th><th></th></tr></thead>
+      <caption class="visually-hidden">Candidates for this role, sorted by overall score (highest first).</caption>
+      <thead><tr>
+        <th scope="col">Candidate</th><th scope="col">Status</th><th scope="col">Overall</th>
+        <th scope="col">Criteria</th><th scope="col">Rubric</th>
+        <th scope="col"><span class="visually-hidden">Actions</span></th>
+      </tr></thead>
       <tbody>
         {% for score in scores %}
           <tr>
-            <td>{{ score.candidate.full_name }}<br><span class="muted">{{ score.candidate.email }}</span></td>
-            <td>
+            <td data-label="Candidate">{{ score.candidate.full_name }}<br><span class="muted">{{ score.candidate.email }}</span></td>
+            <td data-label="Status">
               {% if score.status == 'scored' %}
                 <span class="muted" style="font-size:.8rem">Scored</span>
               {% else %}
                 <span class="chip {{ score.status }}">{{ score.get_status_display }}</span>
               {% endif %}
             </td>
-            <td>
+            <td data-label="Overall">
               {% if score.overall is not None %}
-                <div class="score {{ score.overall|score_band }}">{{ score.overall|floatformat:0 }}</div>
-                <div class="scorebar"><span style="width:{{ score.overall|floatformat:0 }}%"></span></div>
+                <div>
+                  <div class="score {{ score.overall|score_band }}">{{ score.overall|floatformat:0 }}<span class="visually-hidden"> out of 100</span></div>
+                  <div class="scorebar" aria-hidden="true"><span style="width:{{ score.overall|floatformat:0 }}%"></span></div>
+                </div>
               {% else %}<span class="muted">—</span>{% endif %}
             </td>
-            <td>
+            <td data-label="Criteria">
               {% if score.per_criterion %}
                 <details>
                   <summary><span class="crit-mini">{% for name, crit in score.per_criterion.items %}{{ crit.score|floatformat:0 }}{% if not forloop.last %}&middot;{% endif %}{% endfor %}</span>
@@ -77,22 +86,25 @@
               {% elif score.cv.needs_manual_text %}
                 <form method="post" action="{% url 'paste_cv' role.pk score.cv.pk %}">
                   {% csrf_token %}
-                  <textarea name="parsed_text" rows="2" placeholder="Paste CV text (file was unreadable)"></textarea>
-                  <div style="margin-top:.3rem"><button class="secondary" type="submit">Save text & score</button></div>
+                  <label class="visually-hidden" for="paste-{{ score.cv.pk }}">CV text for {{ score.candidate.full_name }}</label>
+                  <textarea id="paste-{{ score.cv.pk }}" name="parsed_text" rows="2" placeholder="Paste CV text (file was unreadable)"></textarea>
+                  <div style="margin-top:.3rem"><button class="secondary" type="submit">Save text &amp; score</button></div>
                 </form>
               {% else %}
                 <span class="muted">—</span>
               {% endif %}
             </td>
-            <td class="muted">v{{ score.rubric.version }}</td>
-            <td>
-              {% if score.status == 'failed' %}
+            <td data-label="Rubric" class="muted">v{{ score.rubric.version }}</td>
+            {% if score.status == 'failed' %}
+              <td data-label="Actions">
                 <form method="post" action="{% url 'retry_score' role.pk score.pk %}" style="margin:0">
                   {% csrf_token %}<button class="secondary" type="submit">Retry</button>
                 </form>
                 {% if score.error %}<div class="muted" style="font-size:.78rem">{{ score.error|truncatechars:80 }}</div>{% endif %}
-              {% endif %}
-            </td>
+              </td>
+            {% else %}
+              <td class="actions-empty"></td>
+            {% endif %}
           </tr>
         {% endfor %}
       </tbody>
@@ -106,11 +118,11 @@
     <form method="post" action="{% url 'add_candidate' role.pk %}" enctype="multipart/form-data">
       {% csrf_token %}
       <div class="grid">
-        <div><label>Full name</label>{{ add_form.full_name }}</div>
-        <div><label>Email</label>{{ add_form.email }}</div>
+        <div><label for="{{ add_form.full_name.id_for_label }}">Full name</label>{{ add_form.full_name }}</div>
+        <div><label for="{{ add_form.email.id_for_label }}">Email</label>{{ add_form.email }}</div>
       </div>
-      <label>CV file (PDF or DOCX)</label>{{ add_form.cv_file }}
-      <label>…or paste CV text</label>{{ add_form.pasted_text }}
+      <label for="{{ add_form.cv_file.id_for_label }}">CV file (PDF or DOCX)</label>{{ add_form.cv_file }}
+      <label for="{{ add_form.pasted_text.id_for_label }}">…or paste CV text</label>{{ add_form.pasted_text }}
       <div style="margin-top:.8rem"><button type="submit">Add candidate</button></div>
     </form>
   </div>
