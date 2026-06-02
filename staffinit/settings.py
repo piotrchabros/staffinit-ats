@@ -44,6 +44,9 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
+# Railway healthchecks arrive with Host: healthcheck.railway.app — must be allowed.
+ALLOWED_HOSTS.append("healthcheck.railway.app")
+
 # Railway (and most PaaS) sit behind a TLS-terminating proxy and expose the
 # public hostname via an env var. Wire it in automatically so a deploy "just
 # works" without hand-listing the domain.
@@ -64,6 +67,9 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_SSL_REDIRECT = True
+    # Railway's internal healthcheck sends plain HTTP (no X-Forwarded-Proto).
+    # Exempt it so the /login/ healthcheck endpoint returns 200 instead of 301.
+    SECURE_REDIRECT_EXEMPT = [r"^login/$"]
 
 
 # Application definition
