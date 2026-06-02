@@ -16,6 +16,7 @@ from ats.models import (
     CV,
     AnonymizedCV,
     Candidate,
+    Evaluation,
     Role,
     Rubric,
     Score,
@@ -23,6 +24,7 @@ from ats.models import (
 )
 
 from .anonymize import AnonymizationError, AnonymizationService
+from .evaluate import EvaluationError, EvaluationService
 from .screening import ScreeningError, ScreeningService
 from .service import ScoringError, ScoringService
 
@@ -199,3 +201,40 @@ def generate_anonymized_cv(anon_id: int, *, service: AnonymizationService | None
         return acv
     acv.mark_generated(data=data, model_version=model_version)
     return acv
+
+
+# --------------------------------------------------------------------------- #
+# Transcript-based evaluation (Feature 3)                                     #
+# --------------------------------------------------------------------------- #
+def set_transcript(*, role: Role, candidate: Candidate, cv: CV, transcript: str) -> Evaluation:
+    """Upsert the (role, candidate) evaluation with a new transcript, reset to pending."""
+    ev, _created = Evaluation.objects.get_or_create(
+        role=role, candidate=candidate, defaults={"cv": cv}
+    )
+    ev.cv = cv
+    ev.transcript = transcript.strip()
+    ev.status = Evaluation.Status.PENDING
+    ev.save()
+    return ev
+
+
+def generate_evaluation(eval_id: int, *, service: EvaluationService | None = None) -> Evaluation:
+    ev = Evaluation.objects.select_related("role", "cv").get(pk=eval_id)
+    if service is None:
+        from .evaluate import get_default_service
+
+        service = get_default_service()
+    rubric = Rubric.active()
+    criteria = rubric.criteria if rubric else []
+    try:
+        result, model_version = service.evaluate(
+            jd_text=ev.role.jd_text,
+            cv_text=ev.cv.parsed_text,
+            rubric_criteria=criteria,
+            transcript=ev.transcript,
+        )
+    except EvaluationError as exc:
+        ev.mark_failed(exc)
+        return ev
+    ev.mark_generated(result=result, model_version=model_version)
+    return ev
