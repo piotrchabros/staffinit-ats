@@ -44,6 +44,27 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
+# Railway (and most PaaS) sit behind a TLS-terminating proxy and expose the
+# public hostname via an env var. Wire it in automatically so a deploy "just
+# works" without hand-listing the domain.
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()
+]
+_RAILWAY_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+if _RAILWAY_DOMAIN:
+    ALLOWED_HOSTS.append(_RAILWAY_DOMAIN)
+    CSRF_TRUSTED_ORIGINS.append(f"https://{_RAILWAY_DOMAIN}")
+
+# Trust the proxy's X-Forwarded-Proto so Django knows the request is HTTPS
+# (needed for CSRF, secure cookies, and redirects behind Railway's proxy).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Production hardening — only when DEBUG is off (i.e. on the deployed instance).
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_SSL_REDIRECT = True
+
 
 # Application definition
 
@@ -62,6 +83,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise serves static files (admin CSS etc.) in production. Must sit
+    # directly after SecurityMiddleware.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -151,6 +175,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+# collectstatic target (baked into the image at build); WhiteNoise serves it.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 
 # Authentication (Lane D). Single tenant, real per-user accounts; all candidate
 # PII sits behind login. No public registration — an admin provisions users.
