@@ -1,0 +1,26 @@
+{% extends "ats/base.html" %}
+{% block title %}Roles — StaffInit ATS{% endblock %}
+{% block content %}
+  <div style="display:flex; align-items:center">
+    <h1 style="flex:1">Roles</h1>
+    <a class="btn" href="{% url 'role_create' %}">+ New role</a>
+  </div>
+  {% if roles %}
+    <table>
+      <thead><tr><th>Title</th><th>Client</th><th>Candidates</th><th>Scored</th><th>Created</th></tr></thead>
+      <tbody>
+        {% for role in roles %}
+          <tr>
+            <td><a href="{% url 'role_detail' role.pk %}">{{ role.title }}</a></td>
+            <td class="muted">{{ role.client|default:"—" }}</td>
+            <td>{{ role.n_candidates }}</td>
+            <td>{{ role.n_scored }}</td>
+            <td class="muted">{{ role.created_at|date:"Y-m-d" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No roles yet. Create one to start scoring candidates.</p>
+  {% endif %}
+{% endblock %}

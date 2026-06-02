@@ -1,0 +1,13 @@
+from django.urls import path
+
+from . import views
+
+urlpatterns = [
+    path("", views.role_list, name="role_list"),
+    path("roles/new/", views.role_create, name="role_create"),
+    path("roles/<int:pk>/", views.role_detail, name="role_detail"),
+    path("roles/<int:pk>/add-candidate/", views.add_candidate, name="add_candidate"),
+    path("roles/<int:pk>/cv/<int:cv_id>/paste/", views.paste_cv, name="paste_cv"),
+    path("roles/<int:pk>/score/", views.score_role, name="score_role"),
+    path("roles/<int:pk>/score/<int:score_id>/retry/", views.retry_score, name="retry_score"),
+]

@@ -1,0 +1,101 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}StaffInit ATS{% endblock %}</title>
+  <style>
+    /* Self-hosted IBM Plex Sans (no Google Fonts hotlinking — GDPR). */
+    @font-face { font-family:"IBM Plex Sans"; font-weight:400; font-display:swap;
+      src:url("{% static 'fonts/ibm-plex-sans-400.woff2' %}") format("woff2"); }
+    @font-face { font-family:"IBM Plex Sans"; font-weight:500; font-display:swap;
+      src:url("{% static 'fonts/ibm-plex-sans-500.woff2' %}") format("woff2"); }
+    @font-face { font-family:"IBM Plex Sans"; font-weight:600; font-display:swap;
+      src:url("{% static 'fonts/ibm-plex-sans-600.woff2' %}") format("woff2"); }
+    @font-face { font-family:"IBM Plex Sans"; font-weight:700; font-display:swap;
+      src:url("{% static 'fonts/ibm-plex-sans-700.woff2' %}") format("woff2"); }
+
+    :root {
+      --ink:#14161a; --muted:#5b6470; --line:#e6e8eb; --bg:#f7f8fa; --surface:#fff;
+      --accent:#0d9488;
+      --good:#15803d; --good-bg:#e7f6ec; --mid:#b45309; --mid-bg:#fff6e5;
+      --bad:#b91c1c; --bad-bg:#fdecec;
+      --font:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { font-family:var(--font); font-size:15px; line-height:1.5;
+           color:var(--ink); margin:0; background:var(--bg); -webkit-font-smoothing:antialiased; }
+    a { color:var(--accent); text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    a:visited { color:#0b6b62; }
+    header { display:flex; align-items:center; gap:1rem; padding:.85rem 1.5rem;
+             background:var(--surface); border-bottom:1px solid var(--line); }
+    header .brand { color:var(--ink); font-weight:700; letter-spacing:-.01em; font-size:1.05rem; }
+    header .brand .mark { color:var(--accent); }
+    header .spacer { flex:1; }
+    main { max-width: 1040px; margin: 1.75rem auto; padding: 0 1.5rem; }
+    h1 { font-size:1.5rem; font-weight:700; letter-spacing:-.01em; margin:.2rem 0 1rem; }
+    table { width:100%; border-collapse:collapse; background:var(--surface);
+            border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+    th, td { text-align:left; padding:.7rem .8rem; border-bottom:1px solid var(--line); vertical-align:middle; }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover { background:#fcfcfd; }
+    th { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:600;
+         background:#fbfbfc; }
+    .muted { color:var(--muted); }
+    .chip { display:inline-block; font-size:.72rem; font-weight:500; padding:.12rem .55rem;
+            border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+    .chip.pending { background:var(--mid-bg); border-color:#f0dca8; color:#8a5a08; }
+    .chip.failed { background:var(--bad-bg); border-color:#f3c2c2; color:var(--bad); }
+    /* Score hero — the most important number on the page. */
+    .score { font-weight:700; font-size:1.55rem; line-height:1; letter-spacing:-.02em; color:var(--muted); }
+    .score.good { color:var(--good); } .score.mid { color:var(--mid); } .score.bad { color:var(--bad); }
+    .scorebar { height:4px; width:48px; border-radius:999px; margin-top:.35rem; background:var(--line); }
+    .scorebar > span { display:block; height:100%; border-radius:999px; }
+    .score.good ~ .scorebar > span { background:var(--good); }
+    .score.mid ~ .scorebar > span { background:var(--mid); }
+    .score.bad ~ .scorebar > span { background:var(--bad); }
+    .crit-mini { font-weight:600; letter-spacing:.02em; }
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:10px;
+            padding:1.1rem 1.2rem; margin-bottom:1.1rem; }
+    input[type=text], input[type=email], input[type=password], textarea, select {
+      width:100%; padding:.5rem .6rem; border:1px solid var(--line); border-radius:7px;
+      font:inherit; color:var(--ink); background:var(--surface); }
+    input:focus, textarea:focus, select:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:var(--accent); }
+    button, .btn { font:inherit; font-weight:500; padding:.45rem .85rem; border:1px solid var(--ink);
+                   background:var(--ink); color:#fff; border-radius:7px; cursor:pointer;
+                   text-decoration:none; display:inline-block; }
+    button:hover, .btn:hover { opacity:.9; text-decoration:none; }
+    button.secondary, .btn.secondary { background:var(--surface); color:var(--ink); border-color:var(--line); }
+    .messages { list-style:none; padding:0; margin:0 0 1rem; }
+    .messages li { padding:.55rem .8rem; border-radius:7px; margin-bottom:.4rem; border:1px solid var(--line); background:var(--surface); }
+    .messages li.error { background:var(--bad-bg); border-color:#f3c2c2; }
+    .messages li.warning { background:var(--mid-bg); border-color:#f0dca8; }
+    .messages li.success { background:var(--good-bg); border-color:#bfe3cc; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+    details summary { cursor:pointer; color:var(--accent); font-weight:500; }
+    label { font-size:.82rem; color:var(--muted); display:block; margin:.4rem 0 .15rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="{% url 'role_list' %}">Staff<span class="mark">Init</span> ATS</a>
+    <span class="spacer"></span>
+    {% if user.is_authenticated %}
+      <span class="muted">{{ user.get_username }}</span>
+      <form method="post" action="{% url 'logout' %}" style="margin:0">{% csrf_token %}
+        <button class="secondary" type="submit">Log out</button>
+      </form>
+    {% endif %}
+  </header>
+  <main>
+    {% if messages %}
+      <ul class="messages">
+        {% for m in messages %}<li class="{{ m.tags }}">{{ m }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
