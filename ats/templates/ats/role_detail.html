@@ -1,4 +1,5 @@
 {% extends "ats/base.html" %}
+{% load score_extras %}
 {% block title %}{{ role.title }} — StaffInit ATS{% endblock %}
 {% block content %}
   <p class="muted"><a href="{% url 'role_list' %}">← Roles</a></p>
@@ -50,14 +51,26 @@
         {% for score in scores %}
           <tr>
             <td>{{ score.candidate.full_name }}<br><span class="muted">{{ score.candidate.email }}</span></td>
-            <td><span class="chip {{ score.status }}">{{ score.get_status_display }}</span></td>
-            <td>{% if score.overall is not None %}<strong>{{ score.overall|floatformat:0 }}</strong>{% else %}—{% endif %}</td>
+            <td>
+              {% if score.status == 'scored' %}
+                <span class="muted" style="font-size:.8rem">Scored</span>
+              {% else %}
+                <span class="chip {{ score.status }}">{{ score.get_status_display }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if score.overall is not None %}
+                <div class="score {{ score.overall|score_band }}">{{ score.overall|floatformat:0 }}</div>
+                <div class="scorebar"><span style="width:{{ score.overall|floatformat:0 }}%"></span></div>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
             <td>
               {% if score.per_criterion %}
                 <details>
-                  <summary>{{ score.per_criterion|length }} criteria</summary>
+                  <summary><span class="crit-mini">{% for name, crit in score.per_criterion.items %}{{ crit.score|floatformat:0 }}{% if not forloop.last %}&middot;{% endif %}{% endfor %}</span>
+                    <span class="muted" style="font-weight:400"> &nbsp;{{ score.per_criterion|length }} criteria</span></summary>
                   {% for name, crit in score.per_criterion.items %}
-                    <div style="margin:.25rem 0"><strong>{{ name }}:</strong> {{ crit.score }} —
+                    <div style="margin:.3rem 0"><strong>{{ name }}:</strong> {{ crit.score|floatformat:0 }} —
                       <span class="muted">{{ crit.rationale }}</span></div>
                   {% endfor %}
                 </details>
