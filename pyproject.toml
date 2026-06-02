@@ -8,6 +8,8 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "dj-database-url>=2.3",
     "python-dotenv>=1.0",
+    "anthropic>=0.105.2",
+    "procrastinate[django]>=3.8.1",
 ]
 
 [dependency-groups]

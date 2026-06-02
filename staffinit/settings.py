@@ -54,6 +54,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Postgres-backed task queue (Lane B background scoring). Before 'ats' so it
+    # initializes early and autodiscovers ats/tasks.py.
+    'procrastinate.contrib.django',
     'ats',
 ]
 
