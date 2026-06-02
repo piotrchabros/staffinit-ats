@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from procrastinate.contrib.django import app
 
-from ats.scoring.orchestration import pending_score_ids, score_one
+from ats.scoring.orchestration import (
+    generate_screening,
+    pending_score_ids,
+    score_one,
+)
 
 
 @app.task(name="extract_requirements")
@@ -31,6 +35,11 @@ def extract_role_requirements(*, role_id: int) -> None:
 @app.task(name="score_candidate")
 def score_candidate(*, score_id: int) -> None:
     score_one(score_id)
+
+
+@app.task(name="generate_screening")
+def generate_screening_task(*, screening_id: int) -> None:
+    generate_screening(screening_id)
 
 
 @app.task(name="score_role")

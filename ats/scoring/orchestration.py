@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ats.models import CV, Candidate, Role, Rubric, Score
+from ats.models import CV, Candidate, Role, Rubric, Score, ScreeningSet
 
+from .screening import ScreeningError, ScreeningService
 from .service import ScoringError, ScoringService
 
 
@@ -117,3 +118,41 @@ def score_role(role_id: int, *, service: ScoringService | None = None) -> RoleSc
         role_id=role_id, status=Score.Status.SCORED
     ).count() - summary.scored
     return summary
+
+
+# --------------------------------------------------------------------------- #
+# Screening questions (Feature 1)                                             #
+# --------------------------------------------------------------------------- #
+def ensure_screening_set(*, role: Role, candidate: Candidate, cv: CV) -> ScreeningSet:
+    """Idempotently get the (role, candidate) screening set, pinning the CV used."""
+    sset, created = ScreeningSet.objects.get_or_create(
+        role=role, candidate=candidate, defaults={"cv": cv, "status": ScreeningSet.Status.PENDING}
+    )
+    if not created and sset.cv_id != cv.pk:
+        sset.cv = cv
+        sset.status = ScreeningSet.Status.PENDING
+        sset.save(update_fields=["cv", "status"])
+    return sset
+
+
+def generate_screening(screening_id: int, *, service: ScreeningService | None = None) -> ScreeningSet:
+    """Generate questions for a screening set. Reuses the active rubric for topic
+    context (criteria are just hints to the prompt)."""
+    sset = ScreeningSet.objects.select_related("role", "cv").get(pk=screening_id)
+    if service is None:
+        from .screening import get_default_service
+
+        service = get_default_service()
+    rubric = Rubric.active()
+    criteria = rubric.criteria if rubric else []
+    try:
+        questions, model_version = service.generate(
+            jd_text=sset.role.jd_text,
+            cv_text=sset.cv.parsed_text,
+            rubric_criteria=criteria,
+        )
+    except ScreeningError as exc:
+        sset.mark_failed(exc)
+        return sset
+    sset.mark_generated(questions=questions, model_version=model_version)
+    return sset

@@ -102,6 +102,8 @@
                 </form>
                 {% if score.error %}<div class="muted" style="font-size:.78rem">{{ score.error|truncatechars:80 }}</div>{% endif %}
               </td>
+            {% elif score.status == 'scored' %}
+              <td data-label="Actions"><a href="{% url 'screening_detail' role.pk score.candidate.pk %}">Screening &rarr;</a></td>
             {% else %}
               <td class="actions-empty"></td>
             {% endif %}

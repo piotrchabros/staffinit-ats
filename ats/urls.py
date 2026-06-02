@@ -10,4 +10,6 @@ urlpatterns = [
     path("roles/<int:pk>/cv/<int:cv_id>/paste/", views.paste_cv, name="paste_cv"),
     path("roles/<int:pk>/score/", views.score_role, name="score_role"),
     path("roles/<int:pk>/score/<int:score_id>/retry/", views.retry_score, name="retry_score"),
+    path("roles/<int:pk>/candidate/<int:candidate_id>/screening/", views.screening_detail, name="screening_detail"),
+    path("roles/<int:pk>/candidate/<int:candidate_id>/screening/generate/", views.generate_screening, name="generate_screening"),
 ]

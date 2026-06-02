@@ -263,3 +263,56 @@ class Score(models.Model):
         self.error = str(error)[:5000]
         self.status = self.Status.FAILED
         self.save()
+
+
+class ScreeningSet(models.Model):
+    """AI-generated screening questions for one candidate on one role.
+
+    Unlike Score, this is a working prep aid, not a comparable source-of-truth
+    artifact — so it is regenerable: one current set per (role, candidate), and
+    regenerating overwrites it in place.
+
+    questions shape (JSON): [{"topic": str, "question": str, "what_to_listen_for": str}]
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        GENERATED = "generated", "Generated"
+        FAILED = "failed", "Failed"
+
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="screening_sets")
+    candidate = models.ForeignKey(
+        Candidate, on_delete=models.CASCADE, related_name="screening_sets"
+    )
+    cv = models.ForeignKey(CV, on_delete=models.CASCADE, related_name="screening_sets")
+
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    questions = models.JSONField(default=list)
+    model_version = models.CharField(max_length=128, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["role", "candidate"], name="uniq_screening_role_candidate"
+            ),
+        ]
+
+    def __str__(self):
+        return f"ScreeningSet<role={self.role_id} cand={self.candidate_id} {self.status}>"
+
+    def mark_generated(self, *, questions, model_version=""):
+        self.questions = questions
+        if model_version:
+            self.model_version = model_version
+        self.error = ""
+        self.status = self.Status.GENERATED
+        self.save()
+
+    def mark_failed(self, error):
+        self.error = str(error)[:5000]
+        self.status = self.Status.FAILED
+        self.save()
