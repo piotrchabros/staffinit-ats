@@ -122,6 +122,11 @@ class ScoringServiceTests(TestCase):
         with self.assertRaises(ScoringError):
             fake_service(bad).score(jd_text="jd", rubric_criteria=RUBRIC, cv_text="cv")
 
+    def test_confidence_out_of_range_dropped(self):
+        result = fake_service(dict(GOOD_INPUT, confidence=42)).score(
+            jd_text="jd", rubric_criteria=RUBRIC, cv_text="cv")
+        self.assertIsNone(result.confidence)  # not frozen into the immutable Score
+
     def test_empty_cv_raises_without_calling_model(self):
         svc = fake_service()
         with self.assertRaises(ScoringError):

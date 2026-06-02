@@ -16,17 +16,17 @@ Scorecard request flow:
 
 from __future__ import annotations
 
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, F, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from ats import tasks
 from ats.forms import AddCandidateForm, PasteTextForm, RoleForm
 from ats.ingestion.ingest import ingest_cv_file, ingest_pasted_cv
-from django.conf import settings as django_settings
-
 from ats.models import (
     AnonymizedCV,
     CV,
@@ -45,6 +45,29 @@ from ats.scoring.orchestration import (
     pending_score_ids,
     set_transcript,
 )
+
+
+def _role_candidate_or_404(role, candidate_id):
+    """Return a Candidate that is actually on this role (has a Score), else 404.
+
+    Authz scoping: prevents viewing/acting on candidates reached by guessing an
+    id that belongs to a different role (cross-role PII + actions).
+    """
+    candidate = get_object_or_404(Candidate, pk=candidate_id)
+    if not Score.objects.filter(role=role, candidate=candidate).exists():
+        raise Http404("Candidate is not on this role.")
+    return candidate
+
+
+def _latest_score(role, candidate):
+    """The most recent Score for (role, candidate), with its CV. One definition,
+    used by every per-candidate view so they always act on the same CV."""
+    return (
+        Score.objects.filter(role=role, candidate=candidate)
+        .select_related("cv")
+        .order_by("-created_at")
+        .first()
+    )
 
 
 @login_required
@@ -94,11 +117,12 @@ def role_detail(request, pk):
     # Scored first (overall desc), then pending/failed; stable by name.
     scores = scores.order_by(F("overall").desc(nulls_last=True), "candidate__full_name")
 
-    counts = {
-        "scored": scores.filter(status=Score.Status.SCORED).count(),
-        "pending": scores.filter(status=Score.Status.PENDING).count(),
-        "failed": scores.filter(status=Score.Status.FAILED).count(),
-    }
+    # One aggregate query instead of three separate COUNTs.
+    counts = scores.aggregate(
+        scored=Count("pk", filter=Q(status=Score.Status.SCORED)),
+        pending=Count("pk", filter=Q(status=Score.Status.PENDING)),
+        failed=Count("pk", filter=Q(status=Score.Status.FAILED)),
+    )
 
     return render(
         request,
@@ -163,6 +187,11 @@ def add_candidate(request, pk):
 def paste_cv(request, pk, cv_id):
     role = get_object_or_404(Role, pk=pk)
     cv = get_object_or_404(CV, pk=cv_id)
+    # Authz scoping: the CV must already be part of THIS role's pipeline (it has a
+    # Score on this role), else a user could overwrite an unrelated CV's text and
+    # attach it to this role.
+    if not Score.objects.filter(role=role, cv=cv).exists():
+        raise Http404("CV is not part of this role.")
     form = PasteTextForm(request.POST)
     if not form.is_valid():
         messages.error(request, "Paste text is required.")
@@ -209,12 +238,9 @@ def retry_score(request, pk, score_id):
 def screening_detail(request, pk, candidate_id):
     """Screening prep page for one candidate on a role."""
     role = get_object_or_404(Role, pk=pk)
-    candidate = get_object_or_404(Candidate, pk=candidate_id)
+    candidate = _role_candidate_or_404(role, candidate_id)
     sset = ScreeningSet.objects.filter(role=role, candidate=candidate).first()
-    score = (
-        Score.objects.filter(role=role, candidate=candidate)
-        .select_related("cv").order_by("-created_at").first()
-    )
+    score = _latest_score(role, candidate)
     return render(request, "ats/screening.html", {
         "role": role, "candidate": candidate, "screening": sset, "score": score,
     })
@@ -224,11 +250,8 @@ def screening_detail(request, pk, candidate_id):
 @require_POST
 def generate_screening(request, pk, candidate_id):
     role = get_object_or_404(Role, pk=pk)
-    candidate = get_object_or_404(Candidate, pk=candidate_id)
-    score = (
-        Score.objects.filter(role=role, candidate=candidate)
-        .select_related("cv").order_by("-created_at").first()
-    )
+    candidate = _role_candidate_or_404(role, candidate_id)
+    score = _latest_score(role, candidate)
     if score is None or not score.cv.parsed_text.strip():
         messages.error(request, "This candidate has no scored CV text to base questions on.")
         return redirect("screening_detail", pk=role.pk, candidate_id=candidate.pk)
@@ -242,7 +265,7 @@ def generate_screening(request, pk, candidate_id):
 def anonymized_cv_detail(request, pk, candidate_id):
     """Branded, anonymized CV page for client submission."""
     role = get_object_or_404(Role, pk=pk)
-    candidate = get_object_or_404(Candidate, pk=candidate_id)
+    candidate = _role_candidate_or_404(role, candidate_id)
     acv = AnonymizedCV.objects.filter(role=role, candidate=candidate).first()
     return render(request, "ats/anonymized_cv.html", {
         "role": role, "candidate": candidate, "anon": acv,
@@ -254,11 +277,8 @@ def anonymized_cv_detail(request, pk, candidate_id):
 @require_POST
 def generate_anonymized_cv(request, pk, candidate_id):
     role = get_object_or_404(Role, pk=pk)
-    candidate = get_object_or_404(Candidate, pk=candidate_id)
-    score = (
-        Score.objects.filter(role=role, candidate=candidate)
-        .select_related("cv").order_by("-created_at").first()
-    )
+    candidate = _role_candidate_or_404(role, candidate_id)
+    score = _latest_score(role, candidate)
     if score is None or not score.cv.parsed_text.strip():
         messages.error(request, "This candidate has no CV text to anonymize.")
         return redirect("anonymized_cv_detail", pk=role.pk, candidate_id=candidate.pk)
@@ -272,7 +292,7 @@ def generate_anonymized_cv(request, pk, candidate_id):
 def evaluation_detail(request, pk, candidate_id):
     """Transcript-based evaluation page for one candidate."""
     role = get_object_or_404(Role, pk=pk)
-    candidate = get_object_or_404(Candidate, pk=candidate_id)
+    candidate = _role_candidate_or_404(role, candidate_id)
     ev = Evaluation.objects.filter(role=role, candidate=candidate).first()
     return render(request, "ats/evaluation.html", {
         "role": role, "candidate": candidate, "evaluation": ev,
@@ -283,15 +303,12 @@ def evaluation_detail(request, pk, candidate_id):
 @require_POST
 def generate_evaluation(request, pk, candidate_id):
     role = get_object_or_404(Role, pk=pk)
-    candidate = get_object_or_404(Candidate, pk=candidate_id)
+    candidate = _role_candidate_or_404(role, candidate_id)
     transcript = request.POST.get("transcript", "").strip()
     if not transcript:
         messages.error(request, "Paste the screening-call transcript first.")
         return redirect("evaluation_detail", pk=role.pk, candidate_id=candidate.pk)
-    score = (
-        Score.objects.filter(role=role, candidate=candidate)
-        .select_related("cv").order_by("-created_at").first()
-    )
+    score = _latest_score(role, candidate)
     if score is None:
         messages.error(request, "Score this candidate first so the evaluation has a CV.")
         return redirect("evaluation_detail", pk=role.pk, candidate_id=candidate.pk)

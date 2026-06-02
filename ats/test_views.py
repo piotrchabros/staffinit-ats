@@ -40,6 +40,42 @@ class AuthGateTests(TestCase):
         self.assertIn("/login/", resp["Location"])
 
 
+class AuthzScopingTests(TestCase):
+    """Per-candidate / per-CV views must scope to the role (no IDOR by id)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("rec", password="pw")
+        self.client.force_login(self.user)
+        self.rubric = Rubric.objects.create(version=1, criteria=[{"name": "P", "scale": 5}], is_active=True)
+        self.role = Role.objects.create(title="A", jd_text="jd")
+        # A candidate scored on a DIFFERENT role (not on self.role).
+        self.other_role = Role.objects.create(title="B", jd_text="jd2")
+        self.stranger = Candidate.objects.create(full_name="Z", email="z@x.com")
+        self.stranger_cv = CV.objects.create(candidate=self.stranger, parsed_text="cv")
+        Score.objects.create(role=self.other_role, candidate=self.stranger, cv=self.stranger_cv, rubric=self.rubric)
+
+    def test_screening_detail_404_for_candidate_not_on_role(self):
+        resp = self.client.get(reverse("screening_detail", args=[self.role.pk, self.stranger.pk]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_anon_detail_404_for_candidate_not_on_role(self):
+        resp = self.client.get(reverse("anonymized_cv_detail", args=[self.role.pk, self.stranger.pk]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_evaluation_generate_404_for_candidate_not_on_role(self):
+        resp = self.client.post(reverse("generate_evaluation", args=[self.role.pk, self.stranger.pk]),
+                                {"transcript": "hi"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_paste_cv_404_for_cv_not_on_role(self):
+        # stranger_cv has a Score on other_role, not on self.role.
+        resp = self.client.post(reverse("paste_cv", args=[self.role.pk, self.stranger_cv.pk]),
+                                {"parsed_text": "injected"})
+        self.assertEqual(resp.status_code, 404)
+        self.stranger_cv.refresh_from_db()
+        self.assertEqual(self.stranger_cv.parsed_text, "cv")  # untouched
+
+
 @override_settings(MEDIA_ROOT=MEDIA_TMP)
 class FlowTests(TestCase):
     def setUp(self):
@@ -108,6 +144,9 @@ class FlowTests(TestCase):
         cv = CV.objects.create(candidate=cand, raw_file=SimpleUploadedFile("x.pdf", b"x"),
                                parsed_text="", parser_version="pypdf-v1")
         self.assertTrue(cv.needs_manual_text)
+        # add_candidate creates a pending Score linking the CV to the role before
+        # the paste; the paste view now requires that scoping.
+        Score.objects.create(role=self.role, candidate=cand, cv=cv, rubric=self.rubric)
         self.client.post(
             reverse("paste_cv", args=[self.role.pk, cv.pk]),
             {"parsed_text": "Pasted senior python CV"},

@@ -59,7 +59,7 @@ def scrub_pii(data: dict, *, name: str = "", email: str = "") -> dict:
     if email and email.strip():
         patterns.append(re.compile(re.escape(email.strip()), re.IGNORECASE))
     for token in (name or "").split():
-        if len(token) > 2:  # skip initials / short particles
+        if len(token) >= 2:  # redact real name tokens incl. short ones (e.g. "Bo", "Li"); skip 1-char initials
             patterns.append(re.compile(rf"\b{re.escape(token)}\b", re.IGNORECASE))
 
     def redact(value):

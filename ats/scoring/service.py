@@ -104,6 +104,11 @@ class ScoringService:
                 confidence = float(confidence)
             except (TypeError, ValueError):
                 confidence = None
+            else:
+                # Contract is 0-1; drop out-of-range values rather than freezing
+                # a garbage number into the immutable Score.
+                if not (0.0 <= confidence <= 1.0):
+                    confidence = None
 
         usage = getattr(response, "usage", None)
         token_cost = None

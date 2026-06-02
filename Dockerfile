@@ -5,7 +5,10 @@ FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    # Use hashed-manifest static storage at build (collectstatic) AND runtime
+    # (WhiteNoise). Kept out of DEBUG so tests/local use plain storage.
+    DJANGO_MANIFEST_STATIC=true
 
 WORKDIR /app
 
