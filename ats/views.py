@@ -26,7 +26,6 @@ from ats import tasks
 from ats.forms import AddCandidateForm, PasteTextForm, RoleForm
 from ats.ingestion.ingest import ingest_cv_file, ingest_pasted_cv
 from ats.models import CV, Candidate, Role, Rubric, Score
-from ats.scoring.jd_extract import extract_requirements
 from ats.scoring.orchestration import (
     NoActiveRubric,
     create_pending_score,
@@ -49,8 +48,9 @@ def role_create(request):
         form = RoleForm(request.POST)
         if form.is_valid():
             role = form.save()
-            # Best-effort metadata; never blocks (runs inline, swallows failures).
-            extract_requirements(role)
+            # JD extraction is a live API call -> run it in the background so role
+            # creation never blocks the request (and tests never hit the network).
+            tasks.extract_role_requirements.defer(role_id=role.pk)
             messages.success(request, f"Role '{role.title}' created.")
             return redirect("role_detail", pk=role.pk)
     else:

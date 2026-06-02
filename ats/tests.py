@@ -170,3 +170,28 @@ class ErasureCascadeTests(TestCase):
         self.assertEqual(Score.objects.count(), 0)
         # Rubric survives erasure (it is not personal data).
         self.assertEqual(Rubric.objects.count(), 1)
+
+
+class UnicodeStorageTests(TestCase):
+    """Regression for the SQL_ASCII bug a live scoring run surfaced: real CVs and
+    AI rationales contain non-ASCII (accented names, em dashes). The DB must store
+    them. Fails on a SQL_ASCII database; passes on UTF-8 (settings forces the test
+    DB to UTF-8)."""
+
+    def test_stores_non_ascii_names_and_rationales(self):
+        rubric = make_rubric()
+        cand = Candidate.objects.create(full_name="Łukasz Ćwięk", email="lukasz@x.pl")
+        cv = CV.objects.create(candidate=cand, parsed_text="Doświadczenie — 8 lat Python")
+        role = Role.objects.create(title="Inżynier Backend", jd_text="Wymagania…")
+        score = Score.objects.create(role=role, candidate=cand, cv=cv, rubric=rubric)
+        score.mark_scored(
+            overall=92.0,
+            per_criterion={"Python": {"score": 5, "rationale": "textbook match — excellent"}},
+            confidence=0.9,
+        )
+
+        cand.refresh_from_db()
+        score.refresh_from_db()
+        self.assertEqual(cand.full_name, "Łukasz Ćwięk")
+        self.assertEqual(CV.objects.get(pk=cv.pk).parsed_text, "Doświadczenie — 8 lat Python")
+        self.assertIn("—", score.per_criterion["Python"]["rationale"])

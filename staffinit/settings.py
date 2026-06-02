@@ -107,6 +107,13 @@ DATABASES = {
         conn_max_age=600,
     )
 }
+# The DB MUST be UTF-8: CVs and AI rationales contain non-ASCII (accented names,
+# em dashes, smart quotes). A SQL_ASCII database raises DataError on these. Force
+# the test database to UTF-8 so the suite catches encoding bugs regardless of the
+# local Postgres cluster's default encoding (template0 allows a non-default one).
+DATABASES["default"].setdefault("TEST", {})
+DATABASES["default"]["TEST"]["CHARSET"] = "UTF8"
+DATABASES["default"]["TEST"]["TEMPLATE"] = "template0"
 
 
 # Password validation

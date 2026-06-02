@@ -50,13 +50,16 @@ class FlowTests(TestCase):
         )
         self.role = Role.objects.create(title="Backend", jd_text="Python/AWS role")
 
-    def test_role_create(self):
+    def test_role_create_defers_jd_extraction(self):
         resp = self.client.post(reverse("role_create"),
                                 {"title": "Frontend", "client": "Acme", "jd_text": "React role"})
         self.assertEqual(resp.status_code, 302)
-        role = Role.objects.get(title="Frontend")
-        # JD extraction is best-effort with no API key -> stored {}.
-        self.assertEqual(role.structured_requirements, {})
+        self.assertTrue(Role.objects.filter(title="Frontend").exists())
+        # JD extraction runs in the background (a live API call) — the view just
+        # enqueues it; the test never touches the network.
+        self.assertEqual(
+            ProcrastinateJob.objects.filter(task_name="extract_requirements").count(), 1
+        )
 
     def test_scorecard_renders(self):
         resp = self.client.get(reverse("role_detail", args=[self.role.pk]))

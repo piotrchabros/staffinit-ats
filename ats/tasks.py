@@ -18,6 +18,16 @@ from procrastinate.contrib.django import app
 from ats.scoring.orchestration import pending_score_ids, score_one
 
 
+@app.task(name="extract_requirements")
+def extract_role_requirements(*, role_id: int) -> None:
+    """Best-effort JD extraction in the background (a live API call), so role
+    creation doesn't block the request and tests never hit the network."""
+    from ats.models import Role
+    from ats.scoring.jd_extract import extract_requirements
+
+    extract_requirements(Role.objects.get(pk=role_id))
+
+
 @app.task(name="score_candidate")
 def score_candidate(*, score_id: int) -> None:
     score_one(score_id)
