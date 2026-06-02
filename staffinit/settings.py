@@ -145,6 +145,12 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Authentication (Lane D). Single tenant, real per-user accounts; all candidate
+# PII sits behind login. No public registration — an admin provisions users.
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'role_list'
+LOGOUT_REDIRECT_URL = 'login'
+
 # Uploaded CV files (raw_file on the CV model). Local dev writes under media/;
 # production should use object storage in the same EU region as the database.
 MEDIA_URL = 'media/'

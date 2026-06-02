@@ -51,13 +51,16 @@ def create_pending_score(
 
 
 def pending_score_ids(role_id: int) -> list[int]:
-    """IDs of a role's not-yet-scored rows (PENDING + retryable FAILED).
+    """IDs of a role's scorable not-yet-scored rows (PENDING + retryable FAILED).
 
-    Used by the procrastinate task to fan out one job per candidate.
+    Excludes rows whose CV has no extracted text yet — those are waiting on a
+    manual paste, so scoring them would only produce a guaranteed failure. Used
+    by the procrastinate task to fan out one job per candidate.
     """
     return list(
         Score.objects.filter(role_id=role_id)
         .exclude(status=Score.Status.SCORED)
+        .exclude(cv__parsed_text="")
         .values_list("pk", flat=True)
     )
 

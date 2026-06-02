@@ -109,11 +109,14 @@ def extract_requirements(role, *, service: JDExtractionService | None = None) ->
     """Extract requirements for a Role and store them. Best-effort: on failure,
     stores {} (the JD itself still scores fine) so role creation never blocks.
     """
-    if service is None:
-        service = get_default_jd_service()
     try:
-        requirements = service.extract(role.jd_text)
-    except JDExtractionError:
+        svc = service or get_default_jd_service()
+        requirements = svc.extract(role.jd_text)
+    except Exception:
+        # Best-effort by design: a malformed response, a missing API key, or a
+        # network error must NEVER block role creation. Scoring uses the raw JD,
+        # so {} here costs nothing but the (editable) metadata. Broad except is
+        # intentional.
         requirements = {}
     role.structured_requirements = requirements
     role.save(update_fields=["structured_requirements"])

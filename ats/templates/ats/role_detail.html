@@ -1,0 +1,104 @@
+{% extends "ats/base.html" %}
+{% block title %}{{ role.title }} — StaffInit ATS{% endblock %}
+{% block content %}
+  <p class="muted"><a href="{% url 'role_list' %}">← Roles</a></p>
+  <div style="display:flex; align-items:flex-start">
+    <div style="flex:1">
+      <h1>{{ role.title }}</h1>
+      <p class="muted">{{ role.client|default:"" }}</p>
+    </div>
+    <form method="post" action="{% url 'score_role' role.pk %}" style="margin:0">
+      {% csrf_token %}<button type="submit">Score role</button>
+    </form>
+  </div>
+
+  {% if not active_rubric %}
+    <ul class="messages"><li class="error">No active rubric. Create and activate one in the
+      <a href="/admin/ats/rubric/">admin</a> before adding candidates.</li></ul>
+  {% endif %}
+
+  {% if role.structured_requirements.must_have %}
+    <div class="card">
+      <strong>Must have:</strong> {{ role.structured_requirements.must_have|join:", " }}
+      {% if role.structured_requirements.nice_to_have %}
+        <br><span class="muted">Nice to have: {{ role.structured_requirements.nice_to_have|join:", " }}</span>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div style="display:flex; align-items:center; gap:1rem; margin:.5rem 0 1rem">
+    <span class="chip scored">{{ counts.scored }} scored</span>
+    <span class="chip pending">{{ counts.pending }} pending</span>
+    <span class="chip failed">{{ counts.failed }} failed</span>
+    <span class="spacer" style="flex:1"></span>
+    {% if versions %}
+      <form method="get" style="margin:0">
+        <label style="display:inline; margin:0 .3rem 0 0">Rubric</label>
+        <select name="rubric" onchange="this.form.submit()" style="width:auto; display:inline-block">
+          {% for v in versions %}
+            <option value="{{ v }}" {% if v == selected_version %}selected{% endif %}>v{{ v }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    {% endif %}
+  </div>
+
+  {% if scores %}
+    <table>
+      <thead><tr><th>Candidate</th><th>Status</th><th>Overall</th><th>Criteria</th><th>Rubric</th><th></th></tr></thead>
+      <tbody>
+        {% for score in scores %}
+          <tr>
+            <td>{{ score.candidate.full_name }}<br><span class="muted">{{ score.candidate.email }}</span></td>
+            <td><span class="chip {{ score.status }}">{{ score.get_status_display }}</span></td>
+            <td>{% if score.overall is not None %}<strong>{{ score.overall|floatformat:0 }}</strong>{% else %}—{% endif %}</td>
+            <td>
+              {% if score.per_criterion %}
+                <details>
+                  <summary>{{ score.per_criterion|length }} criteria</summary>
+                  {% for name, crit in score.per_criterion.items %}
+                    <div style="margin:.25rem 0"><strong>{{ name }}:</strong> {{ crit.score }} —
+                      <span class="muted">{{ crit.rationale }}</span></div>
+                  {% endfor %}
+                </details>
+              {% elif score.cv.needs_manual_text %}
+                <form method="post" action="{% url 'paste_cv' role.pk score.cv.pk %}">
+                  {% csrf_token %}
+                  <textarea name="parsed_text" rows="2" placeholder="Paste CV text (file was unreadable)"></textarea>
+                  <div style="margin-top:.3rem"><button class="secondary" type="submit">Save text & score</button></div>
+                </form>
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+            <td class="muted">v{{ score.rubric.version }}</td>
+            <td>
+              {% if score.status == 'failed' %}
+                <form method="post" action="{% url 'retry_score' role.pk score.pk %}" style="margin:0">
+                  {% csrf_token %}<button class="secondary" type="submit">Retry</button>
+                </form>
+                {% if score.error %}<div class="muted" style="font-size:.78rem">{{ score.error|truncatechars:80 }}</div>{% endif %}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No candidates yet. Add one below.</p>
+  {% endif %}
+
+  <div class="card" style="margin-top:1.5rem">
+    <strong>Add candidate</strong>
+    <form method="post" action="{% url 'add_candidate' role.pk %}" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="grid">
+        <div><label>Full name</label>{{ add_form.full_name }}</div>
+        <div><label>Email</label>{{ add_form.email }}</div>
+      </div>
+      <label>CV file (PDF or DOCX)</label>{{ add_form.cv_file }}
+      <label>…or paste CV text</label>{{ add_form.pasted_text }}
+      <div style="margin-top:.8rem"><button type="submit">Add candidate</button></div>
+    </form>
+  </div>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "ats/base.html" %}
+{% block title %}Log in — StaffInit ATS{% endblock %}
+{% block content %}
+  <h1>Log in</h1>
+  <div class="card" style="max-width:380px">
+    <form method="post">
+      {% csrf_token %}
+      {% if form.errors %}
+        <ul class="messages"><li class="error">Wrong username or password.</li></ul>
+      {% endif %}
+      <label for="id_username">Username</label>
+      {{ form.username }}
+      <label for="id_password">Password</label>
+      {{ form.password }}
+      <div style="margin-top:1rem"><button type="submit">Log in</button></div>
+    </form>
+  </div>
+{% endblock %}
