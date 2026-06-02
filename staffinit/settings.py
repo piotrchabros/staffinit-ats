@@ -43,6 +43,9 @@ ALLOWED_HOSTS = [
     for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if h.strip()
 ]
+# Railway's healthcheck originates from this hostname — must be allowed so
+# Django doesn't reject the probe with a 400.
+ALLOWED_HOSTS.append("healthcheck.railway.app")
 
 # Railway (and most PaaS) sit behind a TLS-terminating proxy and expose the
 # public hostname via an env var. Wire it in automatically so a deploy "just
@@ -63,7 +66,9 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_SSL_REDIRECT = True
+    # SECURE_SSL_REDIRECT is intentionally omitted — Railway's proxy already
+    # enforces HTTPS for external traffic, and enabling it here breaks
+    # Railway's internal healthcheck (which sends plain HTTP to the container).
 
 
 # Application definition
