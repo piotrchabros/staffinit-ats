@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Django
+*.log
+db.sqlite3
+/media/
+/staticfiles/
+
+# Env / secrets
+.env
+
+# OS / editor
+.DS_Store
+.idea/
+
+# Claude Code / gstack local session state
+.claude/
