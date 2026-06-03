@@ -19,7 +19,7 @@ from django.urls import reverse
 
 from procrastinate.contrib.django.models import ProcrastinateJob
 
-from ats.models import CV, Candidate, Role, Rubric, Score
+from ats.models import CV, Candidate, CandidateUpload, Role, Rubric, Score
 
 MEDIA_TMP = tempfile.mkdtemp()
 
@@ -105,40 +105,19 @@ class FlowTests(TestCase):
         self.assertContains(resp, "Backend")
         self.assertContains(resp, "Add candidates")
 
-    def test_add_candidate_file_auto_extracts_name_and_email(self):
-        # The whole point: drop a CV, no typing — name/email come from the file.
-        upload = SimpleUploadedFile(
-            "anna.docx", make_docx("Anna Nowak — 8y Python, anna@demo.test"),
-            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
-        with mock.patch("ats.scoring.contact.extract_contact",
-                        return_value={"full_name": "Anna Nowak", "email": "anna@demo.test", "phone": ""}):
-            resp = self.client.post(reverse("add_candidate", args=[self.role.pk]),
-                                    {"cv_files": [upload]})
-        self.assertEqual(resp.status_code, 302)
-        cand = Candidate.objects.get(email="anna@demo.test")
-        self.assertEqual(cand.full_name, "Anna Nowak")  # extracted, not typed
-        self.assertEqual(Score.objects.filter(role=self.role, candidate=cand).count(), 1)
-        self.assertEqual(ProcrastinateJob.objects.filter(task_name="score_candidate").count(), 1)
-
-    def test_add_candidate_multiple_files(self):
+    def test_add_candidate_files_are_staged_for_background(self):
+        # Bulk-friendly: the upload request just stages files + enqueues; no
+        # parsing/extraction/scoring happens inline (so hundreds don't time out).
         f1 = SimpleUploadedFile("a.docx", make_docx("A cv"))
         f2 = SimpleUploadedFile("b.docx", make_docx("B cv"))
-        with mock.patch("ats.scoring.contact.extract_contact", side_effect=[
-            {"full_name": "Cand A", "email": "a@demo.test", "phone": ""},
-            {"full_name": "Cand B", "email": "b@demo.test", "phone": ""},
-        ]):
-            self.client.post(reverse("add_candidate", args=[self.role.pk]),
-                             {"cv_files": [f1, f2]})
-        self.assertEqual(Candidate.objects.filter(email__in=["a@demo.test", "b@demo.test"]).count(), 2)
-        self.assertEqual(ProcrastinateJob.objects.filter(task_name="score_candidate").count(), 2)
-
-    def test_add_candidate_skipped_when_no_email_extractable(self):
-        upload = SimpleUploadedFile("x.docx", make_docx("a CV with no email here"))
-        with mock.patch("ats.scoring.contact.extract_contact",
-                        return_value={"full_name": "", "email": "", "phone": ""}):
-            self.client.post(reverse("add_candidate", args=[self.role.pk]), {"cv_files": [upload]})
-        self.assertEqual(Candidate.objects.count(), 0)  # can't create without an email
+        resp = self.client.post(reverse("add_candidate", args=[self.role.pk]),
+                                {"cv_files": [f1, f2]})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(CandidateUpload.objects.filter(role=self.role).count(), 2)
+        self.assertEqual(ProcrastinateJob.objects.filter(task_name="process_candidate_upload").count(), 2)
+        # Nothing extracted/created yet — that's the worker's job.
+        self.assertEqual(Candidate.objects.count(), 0)
+        self.assertEqual(ProcrastinateJob.objects.filter(task_name="score_candidate").count(), 0)
 
     def test_add_candidate_pasted_uses_fallback_when_extraction_empty(self):
         # Single paste with no extractable contact -> the optional manual fields fill in.
@@ -165,20 +144,8 @@ class FlowTests(TestCase):
         self.assertEqual(Score.objects.count(), 0)
         self.assertEqual(Candidate.objects.count(), 0)
 
-    def test_add_candidate_unparseable_file_waits_for_paste(self):
-        bad_pdf = SimpleUploadedFile("scan.pdf", b"%PDF-1.4 not a real pdf",
-                                     content_type="application/pdf")
-        # Unreadable file (no text) + single input -> the fallback email is used,
-        # the row waits for a manual paste. extract_contact isn't called (no text).
-        self.client.post(
-            reverse("add_candidate", args=[self.role.pk]),
-            {"cv_files": [bad_pdf], "full_name": "Eva", "email": "eva@x.com"},
-        )
-        cand = Candidate.objects.get(email="eva@x.com")
-        score = Score.objects.get(role=self.role, candidate=cand)
-        self.assertEqual(score.status, Score.Status.PENDING)
-        self.assertTrue(score.cv.needs_manual_text)
-        self.assertEqual(ProcrastinateJob.objects.filter(task_name="score_candidate").count(), 0)
+    # (Unreadable-file handling moved to the background worker — see
+    # test_intake.ProcessUploadTests.test_unreadable_file_marks_failed.)
 
     def test_paste_cv_fills_text_and_enqueues(self):
         cand = Candidate.objects.create(full_name="Eva", email="eva@x.com")

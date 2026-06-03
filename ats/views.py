@@ -32,6 +32,7 @@ from ats.models import (
     AnonymizedCV,
     CV,
     Candidate,
+    CandidateUpload,
     Evaluation,
     Role,
     Rubric,
@@ -125,6 +126,12 @@ def role_detail(request, pk):
         failed=Count("pk", filter=Q(status=Score.Status.FAILED)),
     )
 
+    uploads = CandidateUpload.objects.filter(role=role)
+    processing_count = uploads.filter(
+        status__in=[CandidateUpload.Status.PENDING, CandidateUpload.Status.PROCESSING]
+    ).count()
+    failed_uploads = uploads.filter(status=CandidateUpload.Status.FAILED)
+
     return render(
         request,
         "ats/role_detail.html",
@@ -137,6 +144,8 @@ def role_detail(request, pk):
             "active_rubric": Rubric.active(),
             "add_form": AddCandidateForm(),
             "paste_form": PasteTextForm(),
+            "processing_count": processing_count,
+            "failed_uploads": failed_uploads,
         },
     )
 
@@ -161,26 +170,41 @@ def add_candidate(request, pk):
 
     files = request.FILES.getlist("cv_files")
     pasted = form.cleaned_data.get("pasted_text", "").strip()
-    inputs = [("file", f) for f in files]
+
+    # Files: parse here (fast, local), then defer the slow LLM work (contact
+    # extraction + scoring) to the worker. Parsing in the request means the
+    # worker needs no filesystem access (the upload volume isn't on the worker).
+    # The original file is not retained — only its extracted text.
+    for f in files:
+        data = f.read()
+        result = extract_text((getattr(f, "name", "") or ""), data)
+        upload = CandidateUpload.objects.create(
+            role=role,
+            original_filename=(getattr(f, "name", "") or "")[:255],
+            parsed_text=result.text if result.ok else "",
+        )
+        tasks.process_candidate_upload.defer(upload_id=upload.pk)
+    if files:
+        messages.success(
+            request,
+            f"Uploading {len(files)} CV(s) — extracting details and scoring in the "
+            "background. Refresh to see them appear.",
+        )
+
+    # Paste: a single manual CV, processed inline (fast). Manual name/email here
+    # are the fallback when the pasted text has no detectable email.
     if pasted:
-        inputs.append(("paste", pasted))
-    # The manual name/email are a fallback only when there's a single input —
-    # one fallback email can't apply to a batch of files.
-    single = len(inputs) == 1
-    fb_name = form.cleaned_data.get("full_name", "").strip() if single else ""
-    fb_email = form.cleaned_data.get("email", "").strip().lower() if single else ""
-
-    queued, waiting, skipped = [], [], []
-    for kind, payload in inputs:
-        outcome, label = _intake_cv(role, kind, payload, fb_name=fb_name, fb_email=fb_email)
-        {"queued": queued, "waiting": waiting, "skipped": skipped}[outcome].append(label)
-
-    if queued:
-        messages.success(request, f"Added & queued for scoring: {', '.join(queued)}.")
-    if waiting:
-        messages.info(request, f"Added, awaiting CV text (unreadable file): {', '.join(waiting)}.")
-    if skipped:
-        messages.warning(request, f"Skipped (no email found): {', '.join(skipped)}.")
+        outcome, label = _intake_cv(
+            role, "paste", pasted,
+            fb_name=form.cleaned_data.get("full_name", "").strip(),
+            fb_email=form.cleaned_data.get("email", "").strip().lower(),
+        )
+        if outcome == "queued":
+            messages.success(request, f"Added & queued for scoring: {label}.")
+        elif outcome == "waiting":
+            messages.info(request, f"Added, awaiting CV text: {label}.")
+        else:
+            messages.warning(request, f"Skipped (no email found): {label}.")
     return redirect("role_detail", pk=role.pk)
 
 

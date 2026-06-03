@@ -18,6 +18,7 @@ from ats.models import (
     CV,
     AnonymizedCV,
     Candidate,
+    CandidateUpload,
     Evaluation,
     Role,
     Rubric,
@@ -26,6 +27,7 @@ from ats.models import (
 )
 
 from .anonymize import AnonymizationService
+from .contact import extract_contact
 from .evaluate import EvaluationService
 from .screening import ScreeningService
 from .service import ScoringService
@@ -247,3 +249,50 @@ def generate_evaluation(eval_id: int, *, service: EvaluationService | None = Non
         return ev
     ev.mark_generated(result=result, model_version=model_version)
     return ev
+
+
+# --------------------------------------------------------------------------- #
+# Bulk upload intake (background)                                             #
+# --------------------------------------------------------------------------- #
+def process_upload(upload_id: int, *, contact_service=None) -> Score | None:
+    """Process one staged CV upload in the background: extract contact from the
+    already-parsed text -> create Candidate + CV + pending Score. Returns the
+    Score (for the task to enqueue scoring) or None if it failed.
+
+    The CV text is parsed by the web at upload time (parsing is fast/local) and
+    stored on the upload row, so the worker needs no filesystem access — it works
+    even though the upload volume isn't attached to the worker service.
+    """
+    upload = CandidateUpload.objects.select_related("role").get(pk=upload_id)
+    if upload.status == CandidateUpload.Status.DONE:
+        return None
+    upload.status = CandidateUpload.Status.PROCESSING
+    upload.save(update_fields=["status"])
+
+    text = (upload.parsed_text or "").strip()
+    if not text:
+        upload.mark_failed("Couldn't read the CV (no extractable text — try a text-based PDF).")
+        return None
+
+    info = extract_contact(text, service=contact_service)
+    email = (info.get("email") or "").strip().lower()
+    if not email:
+        upload.mark_failed("No email found in the CV.")
+        return None
+    name = info.get("full_name") or email.split("@", 1)[0]
+
+    candidate, _ = Candidate.objects.get_or_create(
+        email=email, defaults={"full_name": name, "phone": info.get("phone", "")}
+    )
+    cv = CV.objects.create(candidate=candidate, parsed_text=text, parser_version="bulk-upload")
+    try:
+        score = create_pending_score(role=upload.role, candidate=candidate, cv=cv)
+    except NoActiveRubric:
+        upload.mark_failed("No active rubric — activate one and re-upload.")
+        return None
+
+    upload.candidate = candidate
+    upload.error = ""
+    upload.status = CandidateUpload.Status.DONE
+    upload.save()
+    return score

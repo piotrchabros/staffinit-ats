@@ -20,6 +20,7 @@ from ats.scoring.orchestration import (
     generate_evaluation,
     generate_screening,
     pending_score_ids,
+    process_upload,
     score_one,
 )
 
@@ -37,6 +38,15 @@ def extract_role_requirements(*, role_id: int) -> None:
 @app.task(name="score_candidate")
 def score_candidate(*, score_id: int) -> None:
     score_one(score_id)
+
+
+@app.task(name="process_candidate_upload")
+def process_candidate_upload(*, upload_id: int) -> None:
+    """Parse + extract contact + create Candidate/CV/Score for a staged upload,
+    then enqueue scoring. Lets bulk upload return instantly and process in the bg."""
+    score = process_upload(upload_id)
+    if score is not None and score.cv.parsed_text.strip():
+        score_candidate.defer(score_id=score.pk)
 
 
 @app.task(name="generate_screening")

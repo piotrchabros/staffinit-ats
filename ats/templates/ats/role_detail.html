@@ -46,6 +46,21 @@
     {% endif %}
   </div>
 
+  {% if processing_count %}
+    <ul class="messages"><li class="info">⏳ {{ processing_count }} CV(s) processing in the background — refresh to see them appear.</li></ul>
+  {% endif %}
+  {% if failed_uploads %}
+    <div class="card" style="border-color:#f3c2c2; background:var(--bad-bg)">
+      <strong>{{ failed_uploads|length }} upload(s) need attention</strong>
+      <ul style="margin:.4rem 0 0 1.1rem">
+        {% for u in failed_uploads %}
+          <li>{{ u.original_filename|default:"CV" }} — <span class="muted">{{ u.error }}</span></li>
+        {% endfor %}
+      </ul>
+      <p class="muted" style="font-size:.82rem; margin:.5rem 0 0">Fix the file or add the email, then re-upload these.</p>
+    </div>
+  {% endif %}
+
   {% if scores %}
     <table>
       <caption class="visually-hidden">Candidates for this role, sorted by overall score (highest first).</caption>

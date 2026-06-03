@@ -406,3 +406,47 @@ class Evaluation(GeneratedArtifact):
         self.error = ""
         self.status = self.Status.GENERATED
         self.save()
+
+
+class CandidateUpload(models.Model):
+    """Staging row for an uploaded CV, processed in the background.
+
+    Bulk upload can't extract contact (an LLM call) or score in the request, and
+    a Candidate can't exist before we know its email. So upload just stores the
+    raw file + enqueues a job; the worker parses it, extracts name/email, creates
+    the Candidate + CV + Score, and enqueues scoring. Failures (unreadable file,
+    no email found) stay visible here for follow-up.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        DONE = "done", "Done"
+        FAILED = "failed", "Failed"
+
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="uploads")
+    original_filename = models.CharField(max_length=255, blank=True)
+    # The web parses the CV at upload and stores the text here; the worker reads
+    # only this (no filesystem access needed). Original files aren't retained.
+    parsed_text = models.TextField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    error = models.TextField(blank=True)
+    # The candidate created from this upload (null until done). SET_NULL so erasing
+    # a candidate doesn't delete the audit row.
+    candidate = models.ForeignKey(
+        Candidate, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["role", "status"])]
+
+    def __str__(self):
+        return f"CandidateUpload<{self.original_filename or self.pk} {self.status}>"
+
+    def mark_failed(self, reason):
+        self.error = str(reason)[:5000]
+        self.status = self.Status.FAILED
+        self.save()
