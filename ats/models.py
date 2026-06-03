@@ -61,6 +61,18 @@ class Candidate(models.Model):
             self.email = self.email.strip().lower()
         super().save(*args, **kwargs)
 
+    @property
+    def original_cv(self):
+        """The most recent CV that has an uploaded original file, or None.
+
+        Iterates the (prefetched, -uploaded_at ordered) cvs in Python so it reuses
+        a prefetch cache without an extra query per candidate.
+        """
+        for cv in self.cvs.all():
+            if cv.raw_file:
+                return cv
+        return None
+
 
 class CV(models.Model):
     """One uploaded (or pasted) CV for a candidate.

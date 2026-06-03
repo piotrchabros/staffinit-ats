@@ -17,12 +17,13 @@ Scorecard request flow:
 from __future__ import annotations
 
 import json
+import os
 
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
-from django.http import Http404, JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -128,7 +129,11 @@ def role_detail(request, pk):
         if cur is None or (s.overall or -1) > (cur.overall or -1):
             best[s.candidate_id] = s
 
-    cards = PipelineCard.objects.filter(role=role).select_related("candidate", "stage")
+    cards = (
+        PipelineCard.objects.filter(role=role)
+        .select_related("candidate", "stage")
+        .prefetch_related("candidate__cvs")  # backs candidate.original_cv on each card
+    )
     by_stage = {st.id: [] for st in stages}
     for c in cards:
         c.best_score = best.get(c.candidate_id)
@@ -237,7 +242,11 @@ def candidate_list(request):
         candidates = candidates.filter(
             Q(full_name__icontains=q) | Q(email__icontains=q) | Q(cvs__parsed_text__icontains=q)
         ).distinct()
-    candidates = candidates.annotate(n_cvs=Count("cvs", distinct=True)).order_by("full_name")[:300]
+    candidates = (
+        candidates.annotate(n_cvs=Count("cvs", distinct=True))
+        .prefetch_related("cvs")  # backs Candidate.original_cv without N+1
+        .order_by("full_name")[:300]
+    )
 
     global_uploads = CandidateUpload.objects.filter(role__isnull=True)
     return render(request, "ats/candidate_list.html", {
@@ -250,6 +259,26 @@ def candidate_list(request):
         ).count(),
         "failed_uploads": global_uploads.filter(status=CandidateUpload.Status.FAILED),
     })
+
+
+@login_required
+def cv_file(request, cv_id):
+    """Stream a CV's original uploaded file (inline) to logged-in staff.
+
+    Candidate CVs are PII, so the file is served through this auth-gated view
+    rather than a public MEDIA_URL — only authenticated recruiters can open it.
+    """
+    cv = get_object_or_404(CV, pk=cv_id)
+    if not cv.raw_file:
+        raise Http404("No original file for this CV (it was pasted as text).")
+    try:
+        fh = cv.raw_file.open("rb")
+    except (FileNotFoundError, OSError):
+        raise Http404("The original file is no longer available.")
+    filename = os.path.basename(cv.raw_file.name) or "cv"
+    # Inline (as_attachment=False) so PDFs open in the browser; the filename is
+    # still offered for "save as". FileResponse guesses the content type.
+    return FileResponse(fh, as_attachment=False, filename=filename)
 
 
 @login_required

@@ -56,7 +56,9 @@
           <tr>
             <td data-label="Name">{{ c.full_name }}</td>
             <td data-label="Email" class="muted">{{ c.email }}</td>
-            <td data-label="CVs">{{ c.n_cvs }}</td>
+            <td data-label="CVs">
+              {% if c.original_cv %}<a href="{% url 'cv_file' c.original_cv.pk %}" target="_blank" rel="noopener">View CV</a>{% else %}{{ c.n_cvs }}{% endif %}
+            </td>
             <td data-label="Added" class="muted">{{ c.created_at|date:"Y-m-d" }}</td>
             <td data-label="" style="text-align:right">
               {% if show_archived %}

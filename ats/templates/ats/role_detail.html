@@ -98,6 +98,7 @@
                 <a href="{% url 'screening_detail' role.pk c.candidate.pk %}">Screening</a> ·
                 <a href="{% url 'anonymized_cv_detail' role.pk c.candidate.pk %}">Anon CV</a> ·
                 <a href="{% url 'evaluation_detail' role.pk c.candidate.pk %}">Eval</a>
+                {% if c.candidate.original_cv %} · <a href="{% url 'cv_file' c.candidate.original_cv.pk %}" target="_blank" rel="noopener">CV</a>{% endif %}
               </div>
             </div>
           {% endfor %}
