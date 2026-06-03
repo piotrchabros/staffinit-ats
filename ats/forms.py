@@ -113,15 +113,22 @@ class PersonForm(forms.ModelForm):
 
 
 class DealForm(forms.ModelForm):
-    """A signed placement. The company is set by the view, not the form."""
+    """A signed placement. The company is set by the view, not the form.
+
+    Salary and client rate each carry their own currency (we may pay and bill in
+    different currencies), and rate_period flags monthly vs hourly amounts.
+    """
 
     class Meta:
         model = Deal
         fields = [
-            "developer_name", "role_title", "salary", "client_rate",
-            "currency", "signed_date", "notes",
+            "developer_name", "role_title", "rate_period",
+            "salary", "salary_currency", "client_rate", "client_rate_currency",
+            "signed_date", "notes",
         ]
         widgets = {
             "signed_date": forms.DateInput(attrs={"type": "date"}),
             "notes": forms.Textarea(attrs={"rows": 2}),
+            "salary_currency": forms.TextInput(attrs={"maxlength": 8, "placeholder": "PLN"}),
+            "client_rate_currency": forms.TextInput(attrs={"maxlength": 8, "placeholder": "EUR"}),
         }

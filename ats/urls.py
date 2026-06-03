@@ -36,6 +36,7 @@ urlpatterns = [
     path("crm/companies/<int:pk>/archive/", views.archive_company, name="archive_company"),
     path("crm/companies/<int:pk>/unarchive/", views.unarchive_company, name="unarchive_company"),
     path("crm/companies/<int:pk>/people/add/", views.add_person, name="add_person"),
+    path("crm/people/<int:pk>/delete/", views.delete_person, name="delete_person"),
     path("crm/companies/<int:pk>/deals/add/", views.add_deal, name="add_deal"),
     path("crm/deals/<int:pk>/", views.deal_detail, name="deal_detail"),
     path("crm/deals/<int:pk>/documents/add/", views.add_deal_document, name="add_deal_document"),

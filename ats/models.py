@@ -560,12 +560,18 @@ class Deal(models.Model):
     """A signed placement: a developer we contracted out to a customer.
 
     We track both sides of the economics — what we pay the developer (`salary`)
-    and what the customer pays us (`client_rate`) — so the margin is derivable.
-    The developer optionally links to a Candidate in the ATS; `developer_name` is
-    a snapshot so the deal record survives candidate erasure (GDPR) and covers
-    developers who were never in the pipeline. Signed agreements attach as
-    DealDocument rows.
+    and what the customer pays us (`client_rate`). Each side carries its OWN
+    currency, because we may pay the developer in one currency and bill the
+    client in another. `rate_period` records whether the amounts are monthly or
+    hourly. The developer optionally links to a Candidate in the ATS;
+    `developer_name` is a snapshot so the deal record survives candidate erasure
+    (GDPR) and covers developers who were never in the pipeline. Signed
+    agreements attach as DealDocument rows.
     """
+
+    class RatePeriod(models.TextChoices):
+        MONTHLY = "monthly", "Monthly"
+        HOURLY = "hourly", "Hourly"
 
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="deals")
     # Link to the ATS candidate when known; SET_NULL keeps the deal (and the
@@ -575,11 +581,16 @@ class Deal(models.Model):
     )
     developer_name = models.CharField(max_length=255, help_text="The developer signed (snapshot).")
     role_title = models.CharField(max_length=255, blank=True, help_text="What they were placed as.")
-    # Monthly amounts. salary = what we pay the dev; client_rate = what the
-    # customer pays us. Same currency; margin = client_rate - salary.
+    # Whether the amounts below are a monthly or an hourly rate.
+    rate_period = models.CharField(
+        max_length=16, choices=RatePeriod.choices, default=RatePeriod.MONTHLY
+    )
+    # salary = what we pay the dev; client_rate = what the customer pays us. Each
+    # has its own currency. margin is only derivable when the two currencies match.
     salary = models.DecimalField(max_digits=12, decimal_places=2)
+    salary_currency = models.CharField(max_length=8, default="PLN")
     client_rate = models.DecimalField(max_digits=12, decimal_places=2)
-    currency = models.CharField(max_length=8, default="PLN")
+    client_rate_currency = models.CharField(max_length=8, default="PLN")
     signed_date = models.DateField()
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -592,10 +603,21 @@ class Deal(models.Model):
 
     @property
     def margin(self):
-        """What we make on the placement (client_rate - salary), or None if unset."""
+        """What we make on the placement (client_rate - salary), or None.
+
+        None when either amount is unset OR the two sides are in different
+        currencies (you can't subtract across currencies without an FX rate).
+        """
         if self.client_rate is None or self.salary is None:
             return None
+        if self.salary_currency != self.client_rate_currency:
+            return None
         return self.client_rate - self.salary
+
+    @property
+    def period_suffix(self):
+        """\"/hr\" or \"/mo\" — appended to amounts in the UI."""
+        return "/hr" if self.rate_period == self.RatePeriod.HOURLY else "/mo"
 
 
 class DealDocument(models.Model):

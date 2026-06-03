@@ -114,8 +114,11 @@ class DealDocumentInline(admin.TabularInline):
 
 @admin.register(Deal)
 class DealAdmin(admin.ModelAdmin):
-    list_display = ("developer_name", "company", "salary", "client_rate", "currency", "signed_date")
-    list_filter = ("currency", "company")
+    list_display = (
+        "developer_name", "company", "rate_period",
+        "salary", "salary_currency", "client_rate", "client_rate_currency", "signed_date",
+    )
+    list_filter = ("rate_period", "salary_currency", "client_rate_currency", "company")
     search_fields = ("developer_name",)
     raw_id_fields = ("company", "candidate")
     inlines = [DealDocumentInline]

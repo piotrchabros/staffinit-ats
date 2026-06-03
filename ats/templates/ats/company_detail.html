@@ -11,13 +11,19 @@
       <h2 style="font-size:1.1rem">Contacts</h2>
       {% if people %}
         <table>
-          <thead><tr><th scope="col">Name</th><th scope="col">Contact</th></tr></thead>
+          <thead><tr><th scope="col">Name</th><th scope="col">Contact</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
           <tbody>
             {% for p in people %}
               <tr>
                 <td data-label="Name"><strong>{{ p.full_name }}</strong>{% if p.title %}<br><span class="muted" style="font-size:.82rem">{{ p.title }}</span>{% endif %}</td>
                 <td data-label="Contact" class="muted" style="font-size:.85rem">
                   {% if p.email %}{{ p.email }}<br>{% endif %}{{ p.phone }}
+                </td>
+                <td data-label="" style="text-align:right">
+                  <form method="post" action="{% url 'delete_person' p.pk %}" style="margin:0"
+                        onsubmit="return confirm('Delete contact “{{ p.full_name|escapejs }}”?');">
+                    {% csrf_token %}<button type="submit" class="secondary">Delete</button>
+                  </form>
                 </td>
               </tr>
             {% endfor %}
@@ -52,8 +58,12 @@
                   {% if d.role_title %}<br><span class="muted" style="font-size:.82rem">{{ d.role_title }}</span>{% endif %}
                 </td>
                 <td data-label="Margin">
-                  {{ d.margin|floatformat:0 }} {{ d.currency }}
-                  <br><span class="muted" style="font-size:.78rem">{{ d.client_rate|floatformat:0 }} − {{ d.salary|floatformat:0 }}</span>
+                  {% if d.margin is not None %}
+                    {{ d.margin|floatformat:0 }} {{ d.salary_currency }}{{ d.period_suffix }}
+                  {% else %}
+                    <span class="muted">—</span>
+                  {% endif %}
+                  <br><span class="muted" style="font-size:.78rem">{{ d.client_rate|floatformat:0 }} {{ d.client_rate_currency }} − {{ d.salary|floatformat:0 }} {{ d.salary_currency }}</span>
                 </td>
                 <td data-label="Signed" class="muted">{{ d.signed_date|date:"Y-m-d" }}{% if d.documents.all %}<br><span style="font-size:.78rem">📎 {{ d.documents.all|length }}</span>{% endif %}</td>
               </tr>
@@ -68,14 +78,16 @@
           {% csrf_token %}
           <label for="{{ deal_form.developer_name.id_for_label }}">Developer</label>{{ deal_form.developer_name }}
           <label for="{{ deal_form.role_title.id_for_label }}">Placed as</label>{{ deal_form.role_title }}
+          <label for="{{ deal_form.rate_period.id_for_label }}">Rate period</label>{{ deal_form.rate_period }}
           <div class="grid" style="gap:.6rem">
             <div><label for="{{ deal_form.salary.id_for_label }}">Salary (we pay)</label>{{ deal_form.salary }}</div>
-            <div><label for="{{ deal_form.client_rate.id_for_label }}">Client rate (we charge)</label>{{ deal_form.client_rate }}</div>
+            <div><label for="{{ deal_form.salary_currency.id_for_label }}">Salary currency</label>{{ deal_form.salary_currency }}</div>
           </div>
           <div class="grid" style="gap:.6rem">
-            <div><label for="{{ deal_form.currency.id_for_label }}">Currency</label>{{ deal_form.currency }}</div>
-            <div><label for="{{ deal_form.signed_date.id_for_label }}">Date signed</label>{{ deal_form.signed_date }}</div>
+            <div><label for="{{ deal_form.client_rate.id_for_label }}">Client rate (we charge)</label>{{ deal_form.client_rate }}</div>
+            <div><label for="{{ deal_form.client_rate_currency.id_for_label }}">Client currency</label>{{ deal_form.client_rate_currency }}</div>
           </div>
+          <label for="{{ deal_form.signed_date.id_for_label }}">Date signed</label>{{ deal_form.signed_date }}
           <label for="{{ deal_form.notes.id_for_label }}">Notes</label>{{ deal_form.notes }}
           <label>Agreements (optional)</label>
           <input type="file" name="documents" multiple>

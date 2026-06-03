@@ -766,6 +766,19 @@ def add_person(request, pk):
 
 @login_required
 @require_POST
+def delete_person(request, pk):
+    """Remove a contact from its company. Contacts hold no downstream records
+    (deals link to the company, not the person), so this is a plain hard delete."""
+    person = get_object_or_404(Person, pk=pk)
+    company_pk = person.company_id
+    name = person.full_name
+    person.delete()
+    messages.success(request, f"Deleted contact {name}.")
+    return redirect("company_detail", pk=company_pk)
+
+
+@login_required
+@require_POST
 def add_deal(request, pk):
     company = get_object_or_404(Company, pk=pk)
     form = DealForm(request.POST)

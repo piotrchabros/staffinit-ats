@@ -3,15 +3,19 @@
 {% block content %}
   <p class="muted"><a href="{% url 'company_detail' deal.company.pk %}">&larr; {{ deal.company.name }}</a></p>
   <h1 style="margin-bottom:.1rem">{{ deal.developer_name }}</h1>
-  <p class="muted">{% if deal.role_title %}{{ deal.role_title }} · {% endif %}signed {{ deal.signed_date|date:"Y-m-d" }}</p>
+  <p class="muted">{% if deal.role_title %}{{ deal.role_title }} · {% endif %}{{ deal.get_rate_period_display }} rate · signed {{ deal.signed_date|date:"Y-m-d" }}</p>
 
   <div class="card">
     <div class="grid">
-      <div><label>Salary (we pay)</label><div class="score" style="font-size:1.3rem">{{ deal.salary|floatformat:0 }} {{ deal.currency }}</div></div>
-      <div><label>Client rate (we charge)</label><div class="score" style="font-size:1.3rem">{{ deal.client_rate|floatformat:0 }} {{ deal.currency }}</div></div>
+      <div><label>Salary (we pay)</label><div class="score" style="font-size:1.3rem">{{ deal.salary|floatformat:0 }} {{ deal.salary_currency }}<span class="muted" style="font-size:.9rem; font-weight:400">{{ deal.period_suffix }}</span></div></div>
+      <div><label>Client rate (we charge)</label><div class="score" style="font-size:1.3rem">{{ deal.client_rate|floatformat:0 }} {{ deal.client_rate_currency }}<span class="muted" style="font-size:.9rem; font-weight:400">{{ deal.period_suffix }}</span></div></div>
     </div>
-    <div style="margin-top:1rem"><label>Monthly margin</label>
-      <div class="score good" style="font-size:1.55rem">{{ deal.margin|floatformat:0 }} {{ deal.currency }}</div>
+    <div style="margin-top:1rem"><label>Margin ({{ deal.get_rate_period_display|lower }})</label>
+      {% if deal.margin is not None %}
+        <div class="score good" style="font-size:1.55rem">{{ deal.margin|floatformat:0 }} {{ deal.salary_currency }}<span class="muted" style="font-size:.9rem; font-weight:400">{{ deal.period_suffix }}</span></div>
+      {% else %}
+        <div class="muted">Not comparable — salary and client rate are in different currencies.</div>
+      {% endif %}
     </div>
     {% if deal.notes %}<div style="margin-top:1rem"><label>Notes</label><p style="margin:.2rem 0 0">{{ deal.notes|linebreaksbr }}</p></div>{% endif %}
   </div>

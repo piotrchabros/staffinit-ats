@@ -45,20 +45,58 @@ class CRMTests(TestCase):
         self.assertEqual(p.company, self.company)
         self.assertEqual(p.title, "CTO")
 
+    def test_delete_person(self):
+        p = Person.objects.create(company=self.company, full_name="Jane Buyer")
+        resp = self.client.post(reverse("delete_person", args=[p.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("company_detail", args=[self.company.pk]))
+        self.assertFalse(Person.objects.filter(pk=p.pk).exists())
+        # The company itself is untouched.
+        self.assertTrue(Company.objects.filter(pk=self.company.pk).exists())
+
+    def test_delete_person_get_not_allowed(self):
+        p = Person.objects.create(company=self.company, full_name="Jane Buyer")
+        resp = self.client.get(reverse("delete_person", args=[p.pk]))
+        self.assertEqual(resp.status_code, 405)
+        self.assertTrue(Person.objects.filter(pk=p.pk).exists())
+
     def test_add_deal_with_document(self):
         doc = SimpleUploadedFile("agreement.pdf", b"%PDF-1.4 fake", content_type="application/pdf")
         resp = self.client.post(reverse("add_deal", args=[self.company.pk]), {
             "developer_name": "Bob Dev", "role_title": "Senior Backend",
-            "salary": "18000", "client_rate": "26000", "currency": "PLN",
+            "rate_period": "monthly",
+            "salary": "18000", "salary_currency": "PLN",
+            "client_rate": "26000", "client_rate_currency": "PLN",
             "signed_date": "2026-05-01", "notes": "", "documents": doc,
         })
         self.assertEqual(resp.status_code, 302)
         deal = Deal.objects.get(developer_name="Bob Dev")
         self.assertEqual(deal.company, self.company)
+        self.assertEqual(deal.rate_period, "monthly")
         self.assertEqual(deal.margin, Decimal("8000"))
         self.assertEqual(DealDocument.objects.filter(deal=deal).count(), 1)
         # Redirects to the new deal's page.
         self.assertEqual(resp.url, reverse("deal_detail", args=[deal.pk]))
+
+    def test_add_hourly_deal_with_distinct_currencies(self):
+        resp = self.client.post(reverse("add_deal", args=[self.company.pk]), {
+            "developer_name": "Eva Dev", "role_title": "Contractor",
+            "rate_period": "hourly",
+            "salary": "90", "salary_currency": "PLN",
+            "client_rate": "40", "client_rate_currency": "EUR",
+            "signed_date": "2026-05-01", "notes": "",
+        })
+        self.assertEqual(resp.status_code, 302)
+        deal = Deal.objects.get(developer_name="Eva Dev")
+        self.assertEqual(deal.rate_period, "hourly")
+        self.assertEqual(deal.salary_currency, "PLN")
+        self.assertEqual(deal.client_rate_currency, "EUR")
+        self.assertEqual(deal.period_suffix, "/hr")
+        # Margin is not computable across currencies.
+        self.assertIsNone(deal.margin)
+        # The deal page renders and explains why there's no margin.
+        resp = self.client.get(reverse("deal_detail", args=[deal.pk]))
+        self.assertContains(resp, "different currencies")
 
     def test_deal_detail_renders(self):
         deal = Deal.objects.create(
