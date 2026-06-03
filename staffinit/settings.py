@@ -230,6 +230,10 @@ AGENCY_NAME = os.environ.get("AGENCY_NAME", "StaffInit")
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# Bulk CV upload: Django caps multipart uploads at 100 files by default, which
+# blocks "drop a few hundred CVs". Raise it (tune via env).
+DATA_UPLOAD_MAX_NUMBER_FILES = int(os.environ.get("DJANGO_MAX_UPLOAD_FILES", "2000"))
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
