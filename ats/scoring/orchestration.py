@@ -20,11 +20,40 @@ from ats.models import (
     Candidate,
     CandidateUpload,
     Evaluation,
+    PipelineCard,
     Role,
     Rubric,
     Score,
+    Stage,
     ScreeningSet,
 )
+
+DEFAULT_STAGES = ["New", "Screening", "Shortlisted", "Submitted", "Rejected"]
+
+
+def ensure_default_stages(role: Role) -> None:
+    """Give a role its default kanban lanes if it has none yet."""
+    if not role.stages.exists():
+        Stage.objects.bulk_create(
+            [Stage(role=role, name=name, position=i) for i, name in enumerate(DEFAULT_STAGES)]
+        )
+
+
+def ensure_pipeline_card(*, role: Role, candidate: Candidate) -> PipelineCard:
+    """Idempotently put a candidate on the role's board, in the first lane."""
+    ensure_default_stages(role)
+    card = PipelineCard.objects.filter(role=role, candidate=candidate).first()
+    if card:
+        return card
+    first_stage = role.stages.first()
+    last_pos = (
+        PipelineCard.objects.filter(role=role, stage=first_stage)
+        .order_by("-position").values_list("position", flat=True).first()
+    )
+    return PipelineCard.objects.create(
+        role=role, candidate=candidate, stage=first_stage,
+        position=(last_pos + 1) if last_pos is not None else 0,
+    )
 
 from .anonymize import AnonymizationService
 from .contact import extract_contact
@@ -63,6 +92,8 @@ def create_pending_score(
         rubric=rubric,
         defaults={"status": Score.Status.PENDING},
     )
+    # Put the candidate on the role's kanban board (first lane) if not already.
+    ensure_pipeline_card(role=role, candidate=candidate)
     return score
 
 

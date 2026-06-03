@@ -455,3 +455,39 @@ class CandidateUpload(models.Model):
         self.error = str(reason)[:5000]
         self.status = self.Status.FAILED
         self.save()
+
+
+class Stage(models.Model):
+    """A pipeline lane on a role's kanban board. Each role has its own ordered
+    set of stages (configurable: add / rename / delete)."""
+
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="stages")
+    name = models.CharField(max_length=100)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.role_id}:{self.name}"
+
+
+class PipelineCard(models.Model):
+    """A candidate's tile on a role's kanban board. One per (role, candidate);
+    its stage + position change as the recruiter drags it between lanes."""
+
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="cards")
+    candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name="pipeline_cards")
+    stage = models.ForeignKey(Stage, on_delete=models.SET_NULL, null=True, blank=True, related_name="cards")
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["position", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["role", "candidate"], name="uniq_card_role_candidate"),
+        ]
+
+    def __str__(self):
+        return f"Card<role={self.role_id} cand={self.candidate_id}>"

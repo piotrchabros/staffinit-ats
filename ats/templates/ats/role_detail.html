@@ -2,11 +2,29 @@
 {% load score_extras %}
 {% block title %}{{ role.title }} — StaffInit ATS{% endblock %}
 {% block content %}
-  <p class="muted"><a href="{% url 'role_list' %}">← Roles</a></p>
-  <div style="display:flex; align-items:flex-start">
+  <style>
+    .board { display:flex; gap:.85rem; overflow-x:auto; align-items:flex-start; padding-bottom:.5rem; }
+    .lane { background:#f1f3f5; border-radius:10px; padding:.5rem; width:250px; flex:0 0 250px; }
+    .lane.drop { outline:2px dashed var(--accent); outline-offset:-2px; }
+    .lane-head { display:flex; align-items:center; gap:.35rem; padding:.15rem .35rem .45rem; }
+    .lane-head .name { font-weight:600; flex:1; }
+    .lane-cards { min-height:30px; }
+    .kcard { background:var(--surface); border:1px solid var(--line); border-radius:8px;
+             padding:.5rem .6rem; margin-bottom:.5rem; cursor:grab; }
+    .kcard.dragging { opacity:.45; }
+    .kcard .nm { font-weight:600; font-size:.92rem; }
+    .kcard .em { font-size:.78rem; }
+    .kcard .links { font-size:.76rem; margin-top:.35rem; }
+    .lane-menu summary { list-style:none; cursor:pointer; color:var(--muted); padding:0 .2rem; }
+    .lane-menu[open] .menu-body { background:var(--surface); border:1px solid var(--line);
+      border-radius:8px; padding:.5rem; margin-top:.3rem; }
+  </style>
+
+  <p class="muted"><a href="{% url 'role_list' %}">&larr; Roles</a></p>
+  <div style="display:flex; align-items:flex-start; gap:1rem">
     <div style="flex:1">
-      <h1>{{ role.title }}</h1>
-      <p class="muted">{{ role.client|default:"" }}</p>
+      <h1 style="margin-bottom:.1rem">{{ role.title }}</h1>
+      <p class="muted">{{ role.client|default:"" }} · {{ card_count }} candidate(s)</p>
     </div>
     <form method="post" action="{% url 'score_role' role.pk %}" style="margin:0">
       {% csrf_token %}<button type="submit">Score role</button>
@@ -14,185 +32,173 @@
   </div>
 
   {% if not active_rubric %}
-    <ul class="messages"><li class="error">No active rubric. Create and activate one in the
+    <ul class="messages"><li class="error">No active rubric. Create/activate one in the
       <a href="/admin/ats/rubric/">admin</a> before adding candidates.</li></ul>
   {% endif %}
-
   {% if role.structured_requirements.must_have %}
-    <div class="card">
-      <strong>Must have:</strong> {{ role.structured_requirements.must_have|join:", " }}
-      {% if role.structured_requirements.nice_to_have %}
-        <br><span class="muted">Nice to have: {{ role.structured_requirements.nice_to_have|join:", " }}</span>
-      {% endif %}
-    </div>
+    <div class="card"><strong>Must have:</strong> {{ role.structured_requirements.must_have|join:", " }}</div>
   {% endif %}
-
-  <div style="display:flex; align-items:center; gap:1rem; margin:.5rem 0 1rem; flex-wrap:wrap">
-    <span class="chip scored">{{ counts.scored }} scored</span>
-    <span class="chip pending">{{ counts.pending }} pending</span>
-    <span class="chip failed">{{ counts.failed }} failed</span>
-    <span class="spacer" style="flex:1"></span>
-    {% if versions %}
-      <form method="get" style="margin:0; display:flex; align-items:center; gap:.4rem">
-        <label for="rubric-select" style="display:inline; margin:0">Rubric</label>
-        <select id="rubric-select" name="rubric" onchange="this.form.submit()" style="width:auto">
-          {% for v in versions %}
-            <option value="{{ v }}" {% if v == selected_version %}selected{% endif %}>v{{ v }}</option>
-          {% endfor %}
-        </select>
-        {# Auto-submits with JS; this button is the no-JS / keyboard fallback. #}
-        <button class="secondary" type="submit">Apply</button>
-      </form>
-    {% endif %}
-  </div>
-
   {% if processing_count %}
-    <ul class="messages"><li class="info">⏳ {{ processing_count }} CV(s) processing in the background — refresh to see them appear.</li></ul>
+    <ul class="messages"><li class="info">⏳ {{ processing_count }} CV(s) processing — refresh to see them appear on the board.</li></ul>
   {% endif %}
   {% if failed_uploads %}
     <div class="card" style="border-color:#f3c2c2; background:var(--bad-bg)">
       <strong>{{ failed_uploads|length }} upload(s) need attention</strong>
       <ul style="margin:.4rem 0 0 1.1rem">
-        {% for u in failed_uploads %}
-          <li>{{ u.original_filename|default:"CV" }} — <span class="muted">{{ u.error }}</span></li>
-        {% endfor %}
+        {% for u in failed_uploads %}<li>{{ u.original_filename|default:"CV" }} — <span class="muted">{{ u.error }}</span></li>{% endfor %}
       </ul>
-      <p class="muted" style="font-size:.82rem; margin:.5rem 0 0">Fix the file or add the email, then re-upload these.</p>
     </div>
   {% endif %}
 
-  {% if scores %}
-    <table>
-      <caption class="visually-hidden">Candidates for this role, sorted by overall score (highest first).</caption>
-      <thead><tr>
-        <th scope="col">Candidate</th><th scope="col">Status</th><th scope="col">Overall</th>
-        <th scope="col">Criteria</th><th scope="col">Rubric</th>
-        <th scope="col"><span class="visually-hidden">Actions</span></th>
-      </tr></thead>
-      <tbody>
-        {% for score in scores %}
-          <tr>
-            <td data-label="Candidate">{{ score.candidate.full_name }}<br><span class="muted">{{ score.candidate.email }}</span></td>
-            <td data-label="Status">
-              {% if score.status == 'scored' %}
-                <span class="muted" style="font-size:.8rem">Scored</span>
-              {% else %}
-                <span class="chip {{ score.status }}">{{ score.get_status_display }}</span>
-              {% endif %}
-            </td>
-            <td data-label="Overall">
-              {% if score.overall is not None %}
-                <div>
-                  <div class="score {{ score.overall|score_band }}">{{ score.overall|floatformat:0 }}<span class="visually-hidden"> out of 100</span></div>
-                  <div class="scorebar" aria-hidden="true"><span style="width:{{ score.overall|floatformat:0 }}%"></span></div>
-                </div>
-              {% else %}<span class="muted">—</span>{% endif %}
-            </td>
-            <td data-label="Criteria">
-              {% if score.per_criterion %}
-                <details>
-                  <summary><span class="crit-mini">{% for name, crit in score.per_criterion.items %}{{ crit.score|floatformat:0 }}{% if not forloop.last %}&middot;{% endif %}{% endfor %}</span>
-                    <span class="muted" style="font-weight:400"> &nbsp;{{ score.per_criterion|length }} criteria</span></summary>
-                  {% for name, crit in score.per_criterion.items %}
-                    <div style="margin:.3rem 0"><strong>{{ name }}:</strong> {{ crit.score|floatformat:0 }} —
-                      <span class="muted">{{ crit.rationale }}</span></div>
-                  {% endfor %}
-                </details>
-              {% elif score.cv.needs_manual_text %}
-                <form method="post" action="{% url 'paste_cv' role.pk score.cv.pk %}">
-                  {% csrf_token %}
-                  <label class="visually-hidden" for="paste-{{ score.cv.pk }}">CV text for {{ score.candidate.full_name }}</label>
-                  <textarea id="paste-{{ score.cv.pk }}" name="parsed_text" rows="2" placeholder="Paste CV text (file was unreadable)"></textarea>
-                  <div style="margin-top:.3rem"><button class="secondary" type="submit">Save text &amp; score</button></div>
-                </form>
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </td>
-            <td data-label="Rubric" class="muted">v{{ score.rubric.version }}</td>
-            {% if score.status == 'failed' %}
-              <td data-label="Actions">
-                <form method="post" action="{% url 'retry_score' role.pk score.pk %}" style="margin:0">
-                  {% csrf_token %}<button class="secondary" type="submit">Retry</button>
-                </form>
-                {% if score.error %}<div class="muted" style="font-size:.78rem">{{ score.error|truncatechars:80 }}</div>{% endif %}
-              </td>
-            {% elif score.status == 'scored' %}
-              <td data-label="Actions" style="white-space:nowrap">
-                <a href="{% url 'screening_detail' role.pk score.candidate.pk %}">Screening</a>
-                <span class="muted">&middot;</span>
-                <a href="{% url 'anonymized_cv_detail' role.pk score.candidate.pk %}">Anon CV</a>
-                <span class="muted">&middot;</span>
-                <a href="{% url 'evaluation_detail' role.pk score.candidate.pk %}">Evaluate</a>
-              </td>
-            {% else %}
-              <td class="actions-empty"></td>
-            {% endif %}
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="muted">No candidates yet. Add one below.</p>
-  {% endif %}
+  <div style="display:flex; gap:.6rem; align-items:center; margin:.6rem 0 1rem; flex-wrap:wrap">
+    <input type="text" id="card-search" placeholder="Filter candidates…" style="max-width:280px">
+    <span class="spacer" style="flex:1"></span>
+    <form method="post" action="{% url 'add_stage' role.pk %}" style="display:flex; gap:.4rem; margin:0">
+      {% csrf_token %}
+      <input type="text" name="name" placeholder="New lane" style="width:130px" required>
+      <button class="secondary" type="submit">+ Lane</button>
+    </form>
+  </div>
+
+  <div class="board" id="board">
+    {% for stage, cards in board %}
+      <div class="lane" data-stage-id="{{ stage.id }}">
+        <div class="lane-head">
+          <span class="name">{{ stage.name }}</span>
+          <span class="muted" data-count>{{ cards|length }}</span>
+          <details class="lane-menu">
+            <summary>⋯</summary>
+            <div class="menu-body">
+              <form method="post" action="{% url 'rename_stage' role.pk stage.id %}" style="margin:0 0 .4rem">
+                {% csrf_token %}
+                <input type="text" name="name" value="{{ stage.name }}" style="width:100%">
+                <div style="margin-top:.3rem"><button class="secondary" type="submit">Rename</button></div>
+              </form>
+              <form method="post" action="{% url 'delete_stage' role.pk stage.id %}" style="margin:0"
+                    onsubmit="return confirm('Delete this lane? Its candidates move to another lane.');">
+                {% csrf_token %}<button class="secondary" type="submit">Delete lane</button>
+              </form>
+            </div>
+          </details>
+        </div>
+        <div class="lane-cards" data-stage-id="{{ stage.id }}">
+          {% for c in cards %}
+            <div class="kcard" draggable="true" data-card-id="{{ c.id }}"
+                 data-search="{{ c.candidate.full_name|lower }} {{ c.candidate.email|lower }}">
+              <div class="nm">{{ c.candidate.full_name }}</div>
+              <div class="em muted">{{ c.candidate.email }}</div>
+              <div style="margin-top:.3rem">
+                {% if c.best_score and c.best_score.overall is not None %}
+                  <span class="score {{ c.best_score.overall|score_band }}" style="font-size:1.15rem">{{ c.best_score.overall|floatformat:0 }}</span>
+                {% elif c.best_score %}
+                  <span class="chip {{ c.best_score.status }}">{{ c.best_score.get_status_display }}</span>
+                {% else %}<span class="muted">—</span>{% endif %}
+              </div>
+              <div class="links">
+                <a href="{% url 'screening_detail' role.pk c.candidate.pk %}">Screening</a> ·
+                <a href="{% url 'anonymized_cv_detail' role.pk c.candidate.pk %}">Anon CV</a> ·
+                <a href="{% url 'evaluation_detail' role.pk c.candidate.pk %}">Eval</a>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
 
   <div class="card" style="margin-top:1.5rem">
     <strong>Add candidates</strong>
-    <p class="muted" style="font-size:.85rem; margin:.2rem 0 .8rem">
-      Drop one or more CV files — the name and email are read from each CV automatically.
-    </p>
+    <p class="muted" style="font-size:.85rem; margin:.2rem 0 .8rem">Drop CV files — name &amp; email are read from each CV; new candidates land in the first lane.</p>
     <form method="post" action="{% url 'add_candidate' role.pk %}" enctype="multipart/form-data">
       {% csrf_token %}
       <div id="dropzone" class="dropzone">
         <div>Drop CV files here, or <strong>click to choose</strong> (PDF or DOCX)</div>
-        {{ add_form.cv_files }}
+        <input type="file" name="cv_files" id="id_cv_files" multiple>
         <ul id="dz-list" class="muted"></ul>
       </div>
-
-      <details style="margin-top:.8rem">
-        <summary>More options (paste text, or set name/email manually)</summary>
-        <label for="{{ add_form.pasted_text.id_for_label }}">Paste a single CV's text</label>
-        {{ add_form.pasted_text }}
-        <div class="grid" style="margin-top:.5rem">
-          <div><label for="{{ add_form.full_name.id_for_label }}">Full name (optional)</label>{{ add_form.full_name }}</div>
-          <div><label for="{{ add_form.email.id_for_label }}">Email (optional)</label>{{ add_form.email }}</div>
-        </div>
-        <p class="muted" style="font-size:.8rem">Only used when a CV can't be read or has no email — and only when adding a single CV.</p>
-      </details>
-
       <div style="margin-top:.9rem"><button type="submit">Add candidates</button></div>
     </form>
   </div>
 
   <script>
+    function getCookie(name) {
+      var m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+      return m ? m.pop() : '';
+    }
+    // ---- Drag & drop between lanes ----
     (function () {
-      var dz = document.getElementById('dropzone');
-      var input = document.getElementById('{{ add_form.cv_files.id_for_label }}');
-      var list = document.getElementById('dz-list');
-      if (!dz || !input) return;
-      function render() {
-        list.innerHTML = '';
-        Array.prototype.forEach.call(input.files, function (f) {
-          var li = document.createElement('li');
-          li.textContent = '✓ ' + f.name;
-          list.appendChild(li);
+      var board = document.getElementById('board');
+      if (!board) return;
+      var dragging = null;
+      var moveUrl = "{% url 'move_card' role.pk %}";
+
+      board.querySelectorAll('.kcard').forEach(function (card) {
+        card.addEventListener('dragstart', function () { dragging = card; card.classList.add('dragging'); });
+        card.addEventListener('dragend', function () { card.classList.remove('dragging'); dragging = null; });
+      });
+
+      function afterElement(container, y) {
+        var els = [].slice.call(container.querySelectorAll('.kcard:not(.dragging)'));
+        var closest = { offset: -Infinity, el: null };
+        els.forEach(function (child) {
+          var box = child.getBoundingClientRect();
+          var offset = y - box.top - box.height / 2;
+          if (offset < 0 && offset > closest.offset) closest = { offset: offset, el: child };
         });
+        return closest.el;
       }
+
+      board.querySelectorAll('.lane-cards').forEach(function (lane) {
+        var laneEl = lane.closest('.lane');
+        ['dragover'].forEach(function (ev) {
+          lane.addEventListener(ev, function (e) {
+            e.preventDefault();
+            laneEl.classList.add('drop');
+            if (!dragging) return;
+            var after = afterElement(lane, e.clientY);
+            if (after) lane.insertBefore(dragging, after); else lane.appendChild(dragging);
+          });
+        });
+        ['dragleave'].forEach(function (ev) {
+          lane.addEventListener(ev, function () { laneEl.classList.remove('drop'); });
+        });
+        lane.addEventListener('drop', function (e) {
+          e.preventDefault();
+          laneEl.classList.remove('drop');
+          var ids = [].slice.call(lane.querySelectorAll('.kcard')).map(function (c) { return c.dataset.cardId; });
+          var body = new URLSearchParams();
+          body.append('stage_id', lane.dataset.stageId);
+          body.append('card_ids', JSON.stringify(ids));
+          fetch(moveUrl, { method: 'POST', headers: { 'X-CSRFToken': getCookie('csrftoken') }, body: body });
+          // update lane counts
+          board.querySelectorAll('.lane').forEach(function (l) {
+            var n = l.querySelectorAll('.kcard').length;
+            var c = l.querySelector('[data-count]'); if (c) c.textContent = n;
+          });
+        });
+      });
+    })();
+    // ---- Client-side search ----
+    (function () {
+      var box = document.getElementById('card-search');
+      if (!box) return;
+      box.addEventListener('input', function () {
+        var q = box.value.trim().toLowerCase();
+        document.querySelectorAll('.kcard').forEach(function (card) {
+          card.style.display = (!q || card.dataset.search.indexOf(q) !== -1) ? '' : 'none';
+        });
+      });
+    })();
+    // ---- Add-candidate dropzone ----
+    (function () {
+      var dz = document.getElementById('dropzone'), input = document.getElementById('id_cv_files'), list = document.getElementById('dz-list');
+      if (!dz || !input) return;
+      function render() { list.innerHTML = ''; Array.prototype.forEach.call(input.files, function (f) { var li = document.createElement('li'); li.textContent = '✓ ' + f.name; list.appendChild(li); }); }
       dz.addEventListener('click', function (e) { if (e.target !== input) input.click(); });
       input.addEventListener('change', render);
-      ['dragover', 'dragenter'].forEach(function (ev) {
-        dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('drag'); });
-      });
-      ['dragleave', 'dragend', 'drop'].forEach(function (ev) {
-        dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('drag'); });
-      });
-      dz.addEventListener('drop', function (e) {
-        var dt = new DataTransfer();
-        Array.prototype.forEach.call(input.files, function (f) { dt.items.add(f); });
-        Array.prototype.forEach.call(e.dataTransfer.files, function (f) { dt.items.add(f); });
-        input.files = dt.files;
-        render();
-      });
+      ['dragover', 'dragenter'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('drag'); }); });
+      ['dragleave', 'dragend', 'drop'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('drag'); }); });
+      dz.addEventListener('drop', function (e) { var dt = new DataTransfer(); Array.prototype.forEach.call(input.files, function (f) { dt.items.add(f); }); Array.prototype.forEach.call(e.dataTransfer.files, function (f) { dt.items.add(f); }); input.files = dt.files; render(); });
     })();
   </script>
 {% endblock %}

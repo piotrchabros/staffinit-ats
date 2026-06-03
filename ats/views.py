@@ -16,11 +16,13 @@ Scorecard request flow:
 
 from __future__ import annotations
 
+import json
+
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, F, Q
-from django.http import Http404
+from django.db.models import Count, Q
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
@@ -34,15 +36,18 @@ from ats.models import (
     Candidate,
     CandidateUpload,
     Evaluation,
+    PipelineCard,
     Role,
     Rubric,
     Score,
+    Stage,
     ScreeningSet,
 )
 from ats.scoring.orchestration import (
     NoActiveRubric,
     create_pending_score,
     ensure_anonymized_cv,
+    ensure_default_stages,
     ensure_screening_set,
     pending_score_ids,
     set_transcript,
@@ -99,55 +104,92 @@ def role_create(request):
 
 @login_required
 def role_detail(request, pk):
+    """The role's pipeline — a kanban board of candidate cards across stages."""
     role = get_object_or_404(Role, pk=pk)
+    ensure_default_stages(role)
+    stages = list(role.stages.all())
 
-    versions = list(
-        Score.objects.filter(role=role)
-        .values_list("rubric__version", flat=True)
-        .distinct()
-        .order_by("-rubric__version")
-    )
-    selected = request.GET.get("rubric")
-    selected_version = (
-        int(selected) if (selected and selected.isdigit())
-        else (versions[0] if versions else None)
-    )
+    # Best score per candidate on this role (prefer the highest scored overall).
+    best = {}
+    for s in Score.objects.filter(role=role).only("candidate_id", "status", "overall"):
+        cur = best.get(s.candidate_id)
+        if cur is None or (s.overall or -1) > (cur.overall or -1):
+            best[s.candidate_id] = s
 
-    scores = Score.objects.filter(role=role).select_related("candidate", "cv", "rubric")
-    if selected_version is not None:
-        scores = scores.filter(rubric__version=selected_version)
-    # Scored first (overall desc), then pending/failed; stable by name.
-    scores = scores.order_by(F("overall").desc(nulls_last=True), "candidate__full_name")
-
-    # One aggregate query instead of three separate COUNTs.
-    counts = scores.aggregate(
-        scored=Count("pk", filter=Q(status=Score.Status.SCORED)),
-        pending=Count("pk", filter=Q(status=Score.Status.PENDING)),
-        failed=Count("pk", filter=Q(status=Score.Status.FAILED)),
-    )
+    cards = PipelineCard.objects.filter(role=role).select_related("candidate", "stage")
+    by_stage = {st.id: [] for st in stages}
+    for c in cards:
+        c.best_score = best.get(c.candidate_id)
+        by_stage.setdefault(c.stage_id if c.stage_id in by_stage else stages[0].id, []).append(c)
+    board = [(st, by_stage.get(st.id, [])) for st in stages]
 
     uploads = CandidateUpload.objects.filter(role=role)
-    processing_count = uploads.filter(
-        status__in=[CandidateUpload.Status.PENDING, CandidateUpload.Status.PROCESSING]
-    ).count()
-    failed_uploads = uploads.filter(status=CandidateUpload.Status.FAILED)
+    return render(request, "ats/role_detail.html", {
+        "role": role,
+        "board": board,
+        "stages": stages,
+        "card_count": cards.count(),
+        "active_rubric": Rubric.active(),
+        "add_form": AddCandidateForm(),
+        "processing_count": uploads.filter(
+            status__in=[CandidateUpload.Status.PENDING, CandidateUpload.Status.PROCESSING]
+        ).count(),
+        "failed_uploads": uploads.filter(status=CandidateUpload.Status.FAILED),
+    })
 
-    return render(
-        request,
-        "ats/role_detail.html",
-        {
-            "role": role,
-            "scores": scores,
-            "counts": counts,
-            "versions": versions,
-            "selected_version": selected_version,
-            "active_rubric": Rubric.active(),
-            "add_form": AddCandidateForm(),
-            "paste_form": PasteTextForm(),
-            "processing_count": processing_count,
-            "failed_uploads": failed_uploads,
-        },
-    )
+
+@login_required
+@require_POST
+def move_card(request, pk):
+    """AJAX: persist a card's lane + ordering after a drag-drop."""
+    role = get_object_or_404(Role, pk=pk)
+    stage = get_object_or_404(Stage, pk=request.POST.get("stage_id"), role=role)
+    try:
+        card_ids = json.loads(request.POST.get("card_ids", "[]"))
+    except (ValueError, TypeError):
+        return JsonResponse({"ok": False, "error": "bad card_ids"}, status=400)
+    for i, cid in enumerate(card_ids):
+        PipelineCard.objects.filter(pk=cid, role=role).update(stage=stage, position=i)
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_POST
+def add_stage(request, pk):
+    role = get_object_or_404(Role, pk=pk)
+    name = (request.POST.get("name") or "").strip()[:100]
+    if name:
+        last = role.stages.order_by("-position").values_list("position", flat=True).first()
+        Stage.objects.create(role=role, name=name, position=(last + 1) if last is not None else 0)
+    return redirect("role_detail", pk=role.pk)
+
+
+@login_required
+@require_POST
+def rename_stage(request, pk, stage_id):
+    role = get_object_or_404(Role, pk=pk)
+    stage = get_object_or_404(Stage, pk=stage_id, role=role)
+    name = (request.POST.get("name") or "").strip()[:100]
+    if name:
+        stage.name = name
+        stage.save(update_fields=["name"])
+    return redirect("role_detail", pk=role.pk)
+
+
+@login_required
+@require_POST
+def delete_stage(request, pk, stage_id):
+    role = get_object_or_404(Role, pk=pk)
+    stage = get_object_or_404(Stage, pk=stage_id, role=role)
+    other = role.stages.exclude(pk=stage.pk).first()
+    if other is None:
+        messages.error(request, "A role needs at least one lane.")
+        return redirect("role_detail", pk=role.pk)
+    # Move this lane's cards to another lane, then delete it.
+    PipelineCard.objects.filter(role=role, stage=stage).update(stage=other)
+    stage.delete()
+    messages.success(request, f"Lane removed; its candidates moved to “{other.name}”.")
+    return redirect("role_detail", pk=role.pk)
 
 
 def _stage_upload(f, *, role=None):
