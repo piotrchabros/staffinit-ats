@@ -190,6 +190,22 @@ class OrchestrationTests(TestCase):
         self.assertEqual(s.status, Score.Status.FAILED)
         self.assertIn("x-api-key", s.error)
 
+    def test_score_one_noop_if_row_scored_during_api_call(self):
+        # Simulate a concurrent duplicate job winning the race while our API call
+        # is in flight: score_one must not error on the immutability guard.
+        s = create_pending_score(role=self.role, candidate=self.cand, cv=self.cv)
+
+        class _Racing:
+            def score(self, **kwargs):
+                Score.objects.get(pk=s.pk).mark_scored(overall=99, per_criterion={})
+                return types.SimpleNamespace(overall=50, per_criterion={}, confidence=None,
+                                             model_version="m", token_cost=1)
+
+        result = score_one(s.pk, service=_Racing())  # must not raise
+        s.refresh_from_db()
+        self.assertEqual(s.status, Score.Status.SCORED)
+        self.assertEqual(s.overall, 99)  # winner's value kept, our 50 discarded
+
     def test_score_one_on_scored_row_is_noop(self):
         s = create_pending_score(role=self.role, candidate=self.cand, cv=self.cv)
         score_one(s.pk, service=fake_service())

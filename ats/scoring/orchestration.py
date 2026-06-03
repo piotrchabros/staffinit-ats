@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from django.db import transaction
+
 from ats.models import (
     CV,
     AnonymizedCV,
@@ -104,14 +106,21 @@ def score_one(score_id: int, *, service: ScoringService | None = None) -> Score:
         score.mark_failed(exc)
         return score
 
-    score.mark_scored(
-        overall=result.overall,
-        per_criterion=result.per_criterion,
-        confidence=result.confidence,
-        model_version=result.model_version,
-        token_cost=result.token_cost,
-    )
-    return score
+    # Persist under a row lock and re-check: a concurrent duplicate job for the
+    # same score_id may have scored this row while our API call was in flight.
+    # Without this, the loser hits the immutability guard and the job errors.
+    with transaction.atomic():
+        locked = Score.objects.select_for_update().get(pk=score.pk)
+        if locked.status == Score.Status.SCORED:
+            return locked  # another job won the race — clean no-op
+        locked.mark_scored(
+            overall=result.overall,
+            per_criterion=result.per_criterion,
+            confidence=result.confidence,
+            model_version=result.model_version,
+            token_cost=result.token_cost,
+        )
+        return locked
 
 
 def score_role(role_id: int, *, service: ScoringService | None = None) -> RoleScoreSummary:
