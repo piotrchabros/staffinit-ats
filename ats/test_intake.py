@@ -69,6 +69,21 @@ class ProcessUploadTests(TestCase):
         self.assertIn("read", up.error.lower())
         self.assertEqual(Candidate.objects.count(), 0)
 
+    def test_role_less_upload_adds_candidate_without_score(self):
+        # Global upload (no role) just adds to the database — no scoring.
+        up = CandidateUpload.objects.create(
+            role=None, original_filename="a.docx", parsed_text="Anna anna2@demo.test 8y Python"
+        )
+        score = process_upload(up.pk, contact_service=contact_service(
+            {"full_name": "Anna", "email": "anna2@demo.test"}))
+        self.assertIsNone(score)  # no scoring without a role
+        up.refresh_from_db()
+        self.assertEqual(up.status, CandidateUpload.Status.DONE)
+        cand = Candidate.objects.get(email="anna2@demo.test")
+        self.assertEqual(up.candidate, cand)
+        self.assertEqual(cand.cvs.count(), 1)
+        self.assertEqual(Score.objects.count(), 0)
+
     def test_no_email_marks_failed(self):
         up = self._upload("a CV with no contact details")
         result = process_upload(up.pk, contact_service=contact_service({"full_name": "X", "email": ""}))

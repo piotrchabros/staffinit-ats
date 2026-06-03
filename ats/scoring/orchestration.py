@@ -284,15 +284,23 @@ def process_upload(upload_id: int, *, contact_service=None) -> Score | None:
     candidate, _ = Candidate.objects.get_or_create(
         email=email, defaults={"full_name": name, "phone": info.get("phone", "")}
     )
-    cv = CV.objects.create(candidate=candidate, parsed_text=text, parser_version="bulk-upload")
-    try:
-        score = create_pending_score(role=upload.role, candidate=candidate, cv=cv)
-    except NoActiveRubric:
-        upload.mark_failed("No active rubric — activate one and re-upload.")
-        return None
+    # cv.raw_file references the file the web stored on the upload (same path on
+    # the volume); the worker writes only the reference, never the bytes.
+    cv = CV.objects.create(
+        candidate=candidate, raw_file=(upload.raw_file or None),
+        parsed_text=text, parser_version="bulk-upload",
+    )
+
+    score = None
+    if upload.role_id:  # role upload -> also create a pending Score (the task scores it)
+        try:
+            score = create_pending_score(role=upload.role, candidate=candidate, cv=cv)
+        except NoActiveRubric:
+            upload.mark_failed("No active rubric — activate one and re-upload.")
+            return None
 
     upload.candidate = candidate
     upload.error = ""
     upload.status = CandidateUpload.Status.DONE
     upload.save()
-    return score
+    return score  # None for global uploads (no scoring)

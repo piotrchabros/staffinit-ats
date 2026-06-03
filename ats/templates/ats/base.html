@@ -77,6 +77,12 @@
     .grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
     details summary { cursor:pointer; color:var(--accent); font-weight:500; }
     label { font-size:.82rem; color:var(--muted); display:block; margin:.4rem 0 .15rem; }
+    .dropzone { border:2px dashed var(--line); border-radius:10px; padding:1.6rem 1rem;
+      text-align:center; cursor:pointer; transition:border-color .15s, background .15s; }
+    .dropzone.drag { border-color:var(--accent); background:#f0fbf9; }
+    .dropzone input[type=file] { display:none; }
+    #dz-list { list-style:none; padding:0; margin:.6rem 0 0; font-size:.85rem; }
+    #dz-list li { padding:.1rem 0; }
 
     /* --- Accessibility --- */
     button, .btn { min-height:38px; }
@@ -116,6 +122,10 @@
   <a href="#main" class="skip">Skip to content</a>
   <header>
     <a class="brand" href="{% url 'role_list' %}">Staff<span class="mark">Init</span> ATS</a>
+    {% if user.is_authenticated %}
+      <a href="{% url 'role_list' %}" style="margin-left:1rem">Roles</a>
+      <a href="{% url 'candidate_list' %}">Candidates</a>
+    {% endif %}
     <span class="spacer"></span>
     {% if user.is_authenticated %}
       <span class="muted">{{ user.get_username }}</span>

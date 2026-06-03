@@ -411,11 +411,10 @@ class Evaluation(GeneratedArtifact):
 class CandidateUpload(models.Model):
     """Staging row for an uploaded CV, processed in the background.
 
-    Bulk upload can't extract contact (an LLM call) or score in the request, and
-    a Candidate can't exist before we know its email. So upload just stores the
-    raw file + enqueues a job; the worker parses it, extracts name/email, creates
-    the Candidate + CV + Score, and enqueues scoring. Failures (unreadable file,
-    no email found) stay visible here for follow-up.
+    The web parses the CV + stores the original file at upload; a background job
+    extracts name/email, creates the Candidate + CV (+ Score if tied to a role),
+    and enqueues scoring. role is optional: a global upload (no role) just adds
+    the candidate to the database. Failures stay visible here for follow-up.
     """
 
     class Status(models.TextChoices):
@@ -424,10 +423,16 @@ class CandidateUpload(models.Model):
         DONE = "done", "Done"
         FAILED = "failed", "Failed"
 
-    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="uploads")
+    # Optional: global uploads (just add to the candidate database) have no role.
+    role = models.ForeignKey(
+        Role, on_delete=models.CASCADE, related_name="uploads", null=True, blank=True
+    )
+    # Original file, stored on the web volume for download. The worker only
+    # references its path (never reads it), so this stays single-instance safe.
+    raw_file = models.FileField(upload_to="cvs/%Y/%m/", null=True, blank=True)
     original_filename = models.CharField(max_length=255, blank=True)
     # The web parses the CV at upload and stores the text here; the worker reads
-    # only this (no filesystem access needed). Original files aren't retained.
+    # only this (no filesystem access needed).
     parsed_text = models.TextField(blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     error = models.TextField(blank=True)

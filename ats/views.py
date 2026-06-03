@@ -150,6 +150,66 @@ def role_detail(request, pk):
     )
 
 
+def _stage_upload(f, *, role=None):
+    """Parse a dropped CV (fast, local), store the original file, and queue the
+    background job that extracts contact + creates the Candidate (+ Score if a
+    role). Shared by role-scoped and global (role-less) upload."""
+    data = f.read()
+    result = extract_text((getattr(f, "name", "") or ""), data)
+    try:
+        f.seek(0)
+    except (AttributeError, OSError):
+        pass
+    upload = CandidateUpload.objects.create(
+        role=role,
+        raw_file=f,
+        original_filename=(getattr(f, "name", "") or "")[:255],
+        parsed_text=result.text if result.ok else "",
+    )
+    tasks.process_candidate_upload.defer(upload_id=upload.pk)
+    return upload
+
+
+@login_required
+def candidate_list(request):
+    """Global, searchable candidate database (across all roles)."""
+    q = (request.GET.get("q") or "").strip()
+    candidates = Candidate.objects.all()
+    if q:
+        candidates = candidates.filter(
+            Q(full_name__icontains=q) | Q(email__icontains=q) | Q(cvs__parsed_text__icontains=q)
+        ).distinct()
+    candidates = candidates.annotate(n_cvs=Count("cvs", distinct=True)).order_by("full_name")[:300]
+
+    global_uploads = CandidateUpload.objects.filter(role__isnull=True)
+    return render(request, "ats/candidate_list.html", {
+        "candidates": candidates,
+        "q": q,
+        "processing_count": global_uploads.filter(
+            status__in=[CandidateUpload.Status.PENDING, CandidateUpload.Status.PROCESSING]
+        ).count(),
+        "failed_uploads": global_uploads.filter(status=CandidateUpload.Status.FAILED),
+    })
+
+
+@login_required
+@require_POST
+def candidate_upload(request):
+    """Role-less bulk upload — just add candidates to the database (no scoring)."""
+    files = request.FILES.getlist("cv_files")
+    for f in files:
+        _stage_upload(f, role=None)
+    if files:
+        messages.success(
+            request,
+            f"Uploading {len(files)} CV(s) — extracting details in the background. "
+            "Refresh to see them appear.",
+        )
+    else:
+        messages.error(request, "Drop at least one CV file.")
+    return redirect("candidate_list")
+
+
 @login_required
 @require_POST
 def add_candidate(request, pk):
@@ -171,19 +231,10 @@ def add_candidate(request, pk):
     files = request.FILES.getlist("cv_files")
     pasted = form.cleaned_data.get("pasted_text", "").strip()
 
-    # Files: parse here (fast, local), then defer the slow LLM work (contact
-    # extraction + scoring) to the worker. Parsing in the request means the
-    # worker needs no filesystem access (the upload volume isn't on the worker).
-    # The original file is not retained — only its extracted text.
+    # Files: parse here (fast, local), store the original, then defer the slow
+    # LLM work (contact extraction + scoring) to the worker.
     for f in files:
-        data = f.read()
-        result = extract_text((getattr(f, "name", "") or ""), data)
-        upload = CandidateUpload.objects.create(
-            role=role,
-            original_filename=(getattr(f, "name", "") or "")[:255],
-            parsed_text=result.text if result.ok else "",
-        )
-        tasks.process_candidate_upload.defer(upload_id=upload.pk)
+        _stage_upload(f, role=role)
     if files:
         messages.success(
             request,

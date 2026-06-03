@@ -1,0 +1,87 @@
+{% extends "ats/base.html" %}
+{% block title %}Candidates — StaffInit ATS{% endblock %}
+{% block content %}
+  <h1>Candidate database</h1>
+
+  <form method="get" style="display:flex; gap:.5rem; margin:0 0 1rem; max-width:560px">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search by name, email, or CV content…">
+    <button type="submit">Search</button>
+    {% if q %}<a class="btn secondary" href="{% url 'candidate_list' %}">Clear</a>{% endif %}
+  </form>
+
+  {% if processing_count %}
+    <ul class="messages"><li class="info">⏳ {{ processing_count }} CV(s) processing in the background — refresh to see them appear.</li></ul>
+  {% endif %}
+  {% if failed_uploads %}
+    <div class="card" style="border-color:#f3c2c2; background:var(--bad-bg)">
+      <strong>{{ failed_uploads|length }} upload(s) need attention</strong>
+      <ul style="margin:.4rem 0 0 1.1rem">
+        {% for u in failed_uploads %}<li>{{ u.original_filename|default:"CV" }} — <span class="muted">{{ u.error }}</span></li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <strong>Add candidates to the database</strong>
+    <p class="muted" style="font-size:.85rem; margin:.2rem 0 .8rem">
+      Drop one or more CV files — name and email are read from each CV. No role needed.
+    </p>
+    <form method="post" action="{% url 'candidate_upload' %}" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div id="dropzone" class="dropzone">
+        <div>Drop CV files here, or <strong>click to choose</strong> (PDF or DOCX)</div>
+        <input type="file" name="cv_files" id="id_cv_files" multiple>
+        <ul id="dz-list" class="muted"></ul>
+      </div>
+      <div style="margin-top:.9rem"><button type="submit">Upload CVs</button></div>
+    </form>
+  </div>
+
+  {% if candidates %}
+    <table style="margin-top:1.25rem">
+      <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">CVs</th><th scope="col">Added</th></tr></thead>
+      <tbody>
+        {% for c in candidates %}
+          <tr>
+            <td data-label="Name">{{ c.full_name }}</td>
+            <td data-label="Email" class="muted">{{ c.email }}</td>
+            <td data-label="CVs">{{ c.n_cvs }}</td>
+            <td data-label="Added" class="muted">{{ c.created_at|date:"Y-m-d" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" style="font-size:.8rem; margin-top:.5rem">Showing up to 300 candidates{% if q %} matching “{{ q }}”{% endif %}.</p>
+  {% else %}
+    <p class="muted" style="margin-top:1rem">{% if q %}No candidates match “{{ q }}”.{% else %}No candidates yet — drop some CVs above.{% endif %}</p>
+  {% endif %}
+
+  <script>
+    (function () {
+      var dz = document.getElementById('dropzone');
+      var input = document.getElementById('id_cv_files');
+      var list = document.getElementById('dz-list');
+      if (!dz || !input) return;
+      function render() {
+        list.innerHTML = '';
+        Array.prototype.forEach.call(input.files, function (f) {
+          var li = document.createElement('li'); li.textContent = '✓ ' + f.name; list.appendChild(li);
+        });
+      }
+      dz.addEventListener('click', function (e) { if (e.target !== input) input.click(); });
+      input.addEventListener('change', render);
+      ['dragover', 'dragenter'].forEach(function (ev) {
+        dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('drag'); });
+      });
+      ['dragleave', 'dragend', 'drop'].forEach(function (ev) {
+        dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('drag'); });
+      });
+      dz.addEventListener('drop', function (e) {
+        var dt = new DataTransfer();
+        Array.prototype.forEach.call(input.files, function (f) { dt.items.add(f); });
+        Array.prototype.forEach.call(e.dataTransfer.files, function (f) { dt.items.add(f); });
+        input.files = dt.files; render();
+      });
+    })();
+  </script>
+{% endblock %}
