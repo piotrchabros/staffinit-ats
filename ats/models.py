@@ -44,6 +44,9 @@ class Candidate(models.Model):
     # Email is the dedup key. Normalized in save(); unique at the DB level.
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=64, blank=True)
+    # Soft-delete: archived candidates are hidden from the default database view
+    # but kept (scores, CVs, deals stay intact). Erasure is a separate hard delete.
+    is_archived = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     class Meta:

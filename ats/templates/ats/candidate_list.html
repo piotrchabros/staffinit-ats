@@ -1,13 +1,22 @@
 {% extends "ats/base.html" %}
 {% block title %}Candidates — StaffInit ATS{% endblock %}
 {% block content %}
-  <h1>Candidate database</h1>
+  <h1>{% if show_archived %}Archived candidates{% else %}Candidate database{% endif %}</h1>
 
-  <form method="get" style="display:flex; gap:.5rem; margin:0 0 1rem; max-width:560px">
+  <form method="get" style="display:flex; gap:.5rem; margin:0 0 .6rem; max-width:560px">
     <input type="text" name="q" value="{{ q }}" placeholder="Search by name, email, or CV content…">
+    {% if show_archived %}<input type="hidden" name="archived" value="1">{% endif %}
     <button type="submit">Search</button>
-    {% if q %}<a class="btn secondary" href="{% url 'candidate_list' %}">Clear</a>{% endif %}
+    {% if q %}<a class="btn secondary" href="{% if show_archived %}{% url 'candidate_list' %}?archived=1{% else %}{% url 'candidate_list' %}{% endif %}">Clear</a>{% endif %}
   </form>
+
+  <p style="margin:0 0 1rem">
+    {% if show_archived %}
+      <a href="{% url 'candidate_list' %}">&larr; Back to active candidates</a>
+    {% elif archived_count %}
+      <a href="{% url 'candidate_list' %}?archived=1">View {{ archived_count }} archived candidate(s)</a>
+    {% endif %}
+  </p>
 
   {% if processing_count %}
     <ul class="messages"><li class="info">⏳ {{ processing_count }} CV(s) processing in the background — refresh to see them appear.</li></ul>
@@ -21,6 +30,7 @@
     </div>
   {% endif %}
 
+  {% if not show_archived %}
   <div class="card">
     <strong>Add candidates to the database</strong>
     <p class="muted" style="font-size:.85rem; margin:.2rem 0 .8rem">
@@ -36,10 +46,11 @@
       <div style="margin-top:.9rem"><button type="submit">Upload CVs</button></div>
     </form>
   </div>
+  {% endif %}
 
   {% if candidates %}
     <table style="margin-top:1.25rem">
-      <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">CVs</th><th scope="col">Added</th></tr></thead>
+      <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">CVs</th><th scope="col">Added</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
       <tbody>
         {% for c in candidates %}
           <tr>
@@ -47,13 +58,24 @@
             <td data-label="Email" class="muted">{{ c.email }}</td>
             <td data-label="CVs">{{ c.n_cvs }}</td>
             <td data-label="Added" class="muted">{{ c.created_at|date:"Y-m-d" }}</td>
+            <td data-label="" style="text-align:right">
+              {% if show_archived %}
+                <form method="post" action="{% url 'unarchive_candidate' c.pk %}" style="margin:0">
+                  {% csrf_token %}<button class="secondary" type="submit">Restore</button>
+                </form>
+              {% else %}
+                <form method="post" action="{% url 'archive_candidate' c.pk %}" style="margin:0">
+                  {% csrf_token %}<button class="secondary" type="submit">Archive</button>
+                </form>
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
     <p class="muted" style="font-size:.8rem; margin-top:.5rem">Showing up to 300 candidates{% if q %} matching “{{ q }}”{% endif %}.</p>
   {% else %}
-    <p class="muted" style="margin-top:1rem">{% if q %}No candidates match “{{ q }}”.{% else %}No candidates yet — drop some CVs above.{% endif %}</p>
+    <p class="muted" style="margin-top:1rem">{% if q %}No candidates match “{{ q }}”.{% elif show_archived %}No archived candidates.{% else %}No candidates yet — drop some CVs above.{% endif %}</p>
   {% endif %}
 
   <script>

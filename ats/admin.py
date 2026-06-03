@@ -19,7 +19,8 @@ from .models import (
 
 @admin.register(Candidate)
 class CandidateAdmin(admin.ModelAdmin):
-    list_display = ("full_name", "email", "phone", "created_at")
+    list_display = ("full_name", "email", "phone", "is_archived", "created_at")
+    list_filter = ("is_archived",)
     search_fields = ("full_name", "email")
 
 

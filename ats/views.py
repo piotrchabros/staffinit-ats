@@ -24,6 +24,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from ats import tasks
@@ -225,9 +226,13 @@ def _stage_upload(f, *, role=None):
 
 @login_required
 def candidate_list(request):
-    """Global, searchable candidate database (across all roles)."""
+    """Global, searchable candidate database (across all roles).
+
+    Archived (soft-deleted) candidates are hidden unless ?archived=1.
+    """
     q = (request.GET.get("q") or "").strip()
-    candidates = Candidate.objects.all()
+    show_archived = request.GET.get("archived") == "1"
+    candidates = Candidate.objects.filter(is_archived=show_archived)
     if q:
         candidates = candidates.filter(
             Q(full_name__icontains=q) | Q(email__icontains=q) | Q(cvs__parsed_text__icontains=q)
@@ -238,11 +243,34 @@ def candidate_list(request):
     return render(request, "ats/candidate_list.html", {
         "candidates": candidates,
         "q": q,
+        "show_archived": show_archived,
+        "archived_count": Candidate.objects.filter(is_archived=True).count(),
         "processing_count": global_uploads.filter(
             status__in=[CandidateUpload.Status.PENDING, CandidateUpload.Status.PROCESSING]
         ).count(),
         "failed_uploads": global_uploads.filter(status=CandidateUpload.Status.FAILED),
     })
+
+
+@login_required
+@require_POST
+def archive_candidate(request, pk):
+    """Soft-delete: hide a candidate from the default database view."""
+    candidate = get_object_or_404(Candidate, pk=pk)
+    candidate.is_archived = True
+    candidate.save(update_fields=["is_archived"])
+    messages.success(request, f"Archived {candidate.full_name}.")
+    return redirect("candidate_list")
+
+
+@login_required
+@require_POST
+def unarchive_candidate(request, pk):
+    candidate = get_object_or_404(Candidate, pk=pk)
+    candidate.is_archived = False
+    candidate.save(update_fields=["is_archived"])
+    messages.success(request, f"Restored {candidate.full_name}.")
+    return redirect(f"{reverse('candidate_list')}?archived=1")
 
 
 @login_required
