@@ -84,4 +84,21 @@
       </details>
     </div>
   </div>
+
+  <div style="margin-top:2rem; padding-top:1rem; border-top:1px solid var(--line)">
+    {% if company.is_archived %}
+      <form method="post" action="{% url 'unarchive_company' company.pk %}" style="margin:0">
+        {% csrf_token %}
+        <button type="submit" class="secondary">Restore company</button>
+        <span class="muted" style="font-size:.82rem; margin-left:.5rem">This company is archived — hidden from the CRM list.</span>
+      </form>
+    {% else %}
+      <form method="post" action="{% url 'archive_company' company.pk %}" style="margin:0"
+            onsubmit="return confirm('Archive “{{ company.name|escapejs }}”? It will be hidden from the CRM list but can be restored.');">
+        {% csrf_token %}
+        <button type="submit" class="secondary" style="border-color:#f3c2c2; color:var(--bad)">Archive company</button>
+        <span class="muted" style="font-size:.82rem; margin-left:.5rem">Hides this company and its contacts and deals. You can restore it later.</span>
+      </form>
+    {% endif %}
+  </div>
 {% endblock %}

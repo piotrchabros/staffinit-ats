@@ -94,7 +94,8 @@ class PersonInline(admin.TabularInline):
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
-    list_display = ("name", "website", "created_at")
+    list_display = ("name", "website", "is_archived", "created_at")
+    list_filter = ("is_archived",)
     search_fields = ("name",)
     inlines = [PersonInline]
 

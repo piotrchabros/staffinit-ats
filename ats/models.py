@@ -523,6 +523,10 @@ class Company(models.Model):
     name = models.CharField(max_length=255, unique=True)
     website = models.URLField(blank=True)
     notes = models.TextField(blank=True)
+    # Soft-delete: archived companies are hidden from the default CRM view but
+    # kept intact (contacts, deals, and signed agreements survive) and can be
+    # restored. Mirrors Candidate.is_archived.
+    is_archived = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     class Meta:

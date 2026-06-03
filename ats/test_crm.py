@@ -79,6 +79,49 @@ class CRMTests(TestCase):
         self.client.post(reverse("add_deal_document", args=[deal.pk]), {"documents": doc})
         self.assertEqual(deal.documents.count(), 1)
 
+    def test_archive_company_hides_but_keeps_it(self):
+        Person.objects.create(company=self.company, full_name="Jane Buyer")
+        deal = Deal.objects.create(
+            company=self.company, developer_name="Bob Dev",
+            salary=Decimal("18000"), client_rate=Decimal("26000"), signed_date="2026-05-01",
+        )
+
+        resp = self.client.post(reverse("archive_company", args=[self.company.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp.url, reverse("company_list"))
+
+        self.company.refresh_from_db()
+        self.assertTrue(self.company.is_archived)
+        # Soft-delete: contacts and deals survive intact.
+        self.assertTrue(Person.objects.filter(company=self.company).exists())
+        self.assertTrue(Deal.objects.filter(pk=deal.pk).exists())
+
+        # Hidden from the default list, shown under ?archived=1. Assert on the
+        # detail-link URL, not the name (the success flash message also carries it).
+        detail_url = reverse("company_detail", args=[self.company.pk])
+        self.assertNotContains(self.client.get(reverse("company_list")), detail_url)
+        self.assertContains(
+            self.client.get(reverse("company_list"), {"archived": "1"}), detail_url
+        )
+
+    def test_unarchive_company(self):
+        self.company.is_archived = True
+        self.company.save(update_fields=["is_archived"])
+        resp = self.client.post(reverse("unarchive_company", args=[self.company.pk]))
+        self.assertEqual(resp.status_code, 302)
+        self.company.refresh_from_db()
+        self.assertFalse(self.company.is_archived)
+        self.assertContains(
+            self.client.get(reverse("company_list")),
+            reverse("company_detail", args=[self.company.pk]),
+        )
+
+    def test_archive_company_get_not_allowed(self):
+        resp = self.client.get(reverse("archive_company", args=[self.company.pk]))
+        self.assertEqual(resp.status_code, 405)
+        self.company.refresh_from_db()
+        self.assertFalse(self.company.is_archived)
+
     def test_margin_none_when_unset(self):
         # Both required at the DB level, but the property guards None defensively.
         deal = Deal(company=self.company, developer_name="X", signed_date="2026-05-01")

@@ -1,14 +1,24 @@
 {% extends "ats/base.html" %}
 {% block title %}CRM — StaffInit ATS{% endblock %}
 {% block content %}
-  <h1>Companies</h1>
+  <h1>{% if show_archived %}Archived companies{% else %}Companies{% endif %}</h1>
 
-  <form method="get" style="display:flex; gap:.5rem; margin:0 0 1rem; max-width:560px">
+  <form method="get" style="display:flex; gap:.5rem; margin:0 0 .6rem; max-width:560px">
     <input type="text" name="q" value="{{ q }}" placeholder="Search companies or contacts…">
+    {% if show_archived %}<input type="hidden" name="archived" value="1">{% endif %}
     <button type="submit">Search</button>
-    {% if q %}<a class="btn secondary" href="{% url 'company_list' %}">Clear</a>{% endif %}
+    {% if q %}<a class="btn secondary" href="{% if show_archived %}{% url 'company_list' %}?archived=1{% else %}{% url 'company_list' %}{% endif %}">Clear</a>{% endif %}
   </form>
 
+  <p style="margin:0 0 1rem">
+    {% if show_archived %}
+      <a href="{% url 'company_list' %}">&larr; Back to active companies</a>
+    {% elif archived_count %}
+      <a href="{% url 'company_list' %}?archived=1">View {{ archived_count }} archived compan{{ archived_count|pluralize:"y,ies" }}</a>
+    {% endif %}
+  </p>
+
+  {% if not show_archived %}
   <details class="card" {% if not companies %}open{% endif %}>
     <summary><strong>+ Add company</strong></summary>
     <form method="post" action="{% url 'add_company' %}" style="margin-top:.8rem">
@@ -19,21 +29,33 @@
       <div style="margin-top:.8rem"><button type="submit">Add company</button></div>
     </form>
   </details>
+  {% endif %}
 
   {% if companies %}
     <table style="margin-top:1.25rem">
-      <thead><tr><th scope="col">Company</th><th scope="col">Contacts</th><th scope="col">Deals</th></tr></thead>
+      <thead><tr><th scope="col">Company</th><th scope="col">Contacts</th><th scope="col">Deals</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
       <tbody>
         {% for c in companies %}
           <tr>
             <td data-label="Company"><a href="{% url 'company_detail' c.pk %}">{{ c.name }}</a></td>
             <td data-label="Contacts">{{ c.n_people }}</td>
             <td data-label="Deals">{{ c.n_deals }}</td>
+            <td data-label="" style="text-align:right">
+              {% if show_archived %}
+                <form method="post" action="{% url 'unarchive_company' c.pk %}" style="margin:0">
+                  {% csrf_token %}<button class="secondary" type="submit">Restore</button>
+                </form>
+              {% else %}
+                <form method="post" action="{% url 'archive_company' c.pk %}" style="margin:0">
+                  {% csrf_token %}<button class="secondary" type="submit">Archive</button>
+                </form>
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   {% else %}
-    <p class="muted" style="margin-top:1rem">{% if q %}No companies match “{{ q }}”.{% else %}No companies yet — add one above.{% endif %}</p>
+    <p class="muted" style="margin-top:1rem">{% if q %}No companies match “{{ q }}”.{% elif show_archived %}No archived companies.{% else %}No companies yet — add one above.{% endif %}</p>
   {% endif %}
 {% endblock %}

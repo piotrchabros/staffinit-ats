@@ -679,9 +679,13 @@ def generate_evaluation(request, pk, candidate_id):
 # --------------------------------------------------------------------------- #
 @login_required
 def company_list(request):
-    """Searchable list of customer companies, with deal counts."""
+    """Searchable list of customer companies, with deal counts.
+
+    Archived (soft-deleted) companies are hidden unless ?archived=1.
+    """
     q = (request.GET.get("q") or "").strip()
-    companies = Company.objects.all()
+    show_archived = request.GET.get("archived") == "1"
+    companies = Company.objects.filter(is_archived=show_archived)
     if q:
         companies = companies.filter(
             Q(name__icontains=q) | Q(people__full_name__icontains=q)
@@ -692,6 +696,8 @@ def company_list(request):
     ).order_by("name")
     return render(request, "ats/company_list.html", {
         "companies": companies, "q": q, "form": CompanyForm(),
+        "show_archived": show_archived,
+        "archived_count": Company.objects.filter(is_archived=True).count(),
     })
 
 
@@ -705,6 +711,28 @@ def add_company(request):
         return redirect("company_detail", pk=company.pk)
     messages.error(request, _form_errors(form))
     return redirect("company_list")
+
+
+@login_required
+@require_POST
+def archive_company(request, pk):
+    """Soft-delete: hide a company (and implicitly its contacts/deals) from the
+    default CRM view. Everything is kept and can be restored."""
+    company = get_object_or_404(Company, pk=pk)
+    company.is_archived = True
+    company.save(update_fields=["is_archived"])
+    messages.success(request, f"Archived “{company.name}”.")
+    return redirect("company_list")
+
+
+@login_required
+@require_POST
+def unarchive_company(request, pk):
+    company = get_object_or_404(Company, pk=pk)
+    company.is_archived = False
+    company.save(update_fields=["is_archived"])
+    messages.success(request, f"Restored “{company.name}”.")
+    return redirect(f"{reverse('company_list')}?archived=1")
 
 
 @login_required
