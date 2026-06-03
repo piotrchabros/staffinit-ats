@@ -9,6 +9,10 @@ urlpatterns = [
     path("candidates/<int:pk>/archive/", views.archive_candidate, name="archive_candidate"),
     path("candidates/<int:pk>/unarchive/", views.unarchive_candidate, name="unarchive_candidate"),
     path("cv/<int:cv_id>/file/", views.cv_file, name="cv_file"),
+    # User management (superuser-only)
+    path("users/", views.user_list, name="user_list"),
+    path("users/add/", views.add_user, name="add_user"),
+    path("users/<int:pk>/delete/", views.delete_user, name="delete_user"),
     path("roles/new/", views.role_create, name="role_create"),
     path("roles/<int:pk>/", views.role_detail, name="role_detail"),
     path("roles/<int:pk>/cards/move/", views.move_card, name="move_card"),

@@ -1,0 +1,45 @@
+{% extends "ats/base.html" %}
+{% block title %}Users — StaffInit ATS{% endblock %}
+{% block content %}
+  <h1>Users</h1>
+  <p class="muted" style="margin-top:-.6rem">Logins that can access the ATS. Only administrators see this page.</p>
+
+  <details class="card" {% if users|length <= 1 %}open{% endif %}>
+    <summary><strong>+ Add user</strong></summary>
+    <form method="post" action="{% url 'add_user' %}" style="margin-top:.8rem; max-width:480px">
+      {% csrf_token %}
+      <label for="{{ form.username.id_for_label }}">Username</label>{{ form.username }}
+      <label for="{{ form.email.id_for_label }}">Email (optional)</label>{{ form.email }}
+      <label for="{{ form.password1.id_for_label }}">Password</label>{{ form.password1 }}
+      <label for="{{ form.password2.id_for_label }}">Confirm password</label>{{ form.password2 }}
+      <label style="display:flex; align-items:center; gap:.5rem; margin-top:.6rem">
+        {{ form.is_admin }} <span>Can manage users (administrator)</span>
+      </label>
+      <div style="margin-top:.8rem"><button type="submit">Add user</button></div>
+    </form>
+  </details>
+
+  <table style="margin-top:1.25rem">
+    <thead><tr><th scope="col">Username</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col"></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+        <tr>
+          <td data-label="Username"><strong>{{ u.username }}</strong>{% if u.pk == request.user.pk %} <span class="muted">(you)</span>{% endif %}</td>
+          <td data-label="Email" class="muted">{{ u.email|default:"—" }}</td>
+          <td data-label="Role">
+            {% if u.is_superuser %}<span class="chip">Administrator</span>{% else %}<span class="chip">User</span>{% endif %}
+          </td>
+          <td data-label="" class="actions-empty">
+            {% if u.pk != request.user.pk %}
+              <form method="post" action="{% url 'delete_user' u.pk %}" style="margin:0"
+                    onsubmit="return confirm('Delete user “{{ u.username|escapejs }}”? This cannot be undone.');">
+                {% csrf_token %}
+                <button type="submit" class="secondary">Delete</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

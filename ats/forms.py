@@ -1,6 +1,39 @@
 from django import forms
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.models import User
 
 from .models import Company, Deal, Person, Role
+
+
+class NewUserForm(UserCreationForm):
+    """Provision a new login (superuser-only flow).
+
+    Extends Django's UserCreationForm — so the two-password confirmation and the
+    project's AUTH_PASSWORD_VALIDATORS still apply — adding an optional email and
+    an "admin" flag that grants user-management (and Django admin) access.
+    """
+
+    email = forms.EmailField(required=False)
+    is_admin = forms.BooleanField(
+        required=False,
+        label="Can manage users",
+        help_text="Administrators can add and remove other users.",
+    )
+
+    class Meta(UserCreationForm.Meta):
+        model = User
+        fields = ("username", "email")
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.email = self.cleaned_data.get("email", "")
+        if self.cleaned_data.get("is_admin"):
+            # is_staff too, so admins keep access to the Django admin.
+            user.is_superuser = True
+            user.is_staff = True
+        if commit:
+            user.save()
+        return user
 
 
 class RoleForm(forms.ModelForm):

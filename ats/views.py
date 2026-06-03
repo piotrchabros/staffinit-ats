@@ -22,6 +22,8 @@ import os
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
+from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import FileResponse, Http404, JsonResponse
@@ -34,6 +36,7 @@ from ats.forms import (
     AddCandidateForm,
     CompanyForm,
     DealForm,
+    NewUserForm,
     PasteTextForm,
     PersonForm,
     RoleForm,
@@ -124,6 +127,54 @@ def _attach_documents(deal, files):
             deal=deal, file=f, original_filename=(getattr(f, "name", "") or "")[:255]
         )
     return len(files)
+
+
+# --------------------------------------------------------------------------- #
+# User management — provision / remove logins (superuser-only)                 #
+# --------------------------------------------------------------------------- #
+def _require_root(request):
+    """403 unless the caller is a superuser ("root"). Use after @login_required so
+    an anonymous user is sent to login, but an authenticated non-admin is denied."""
+    if not request.user.is_superuser:
+        raise PermissionDenied("Only an administrator can manage users.")
+
+
+@login_required
+def user_list(request):
+    """List all logins with an add form. Superuser-only."""
+    _require_root(request)
+    users = User.objects.order_by("username")
+    return render(request, "ats/user_list.html", {
+        "users": users, "form": NewUserForm(),
+    })
+
+
+@login_required
+@require_POST
+def add_user(request):
+    _require_root(request)
+    form = NewUserForm(request.POST)
+    if form.is_valid():
+        user = form.save()
+        messages.success(request, f"Created user “{user.username}”.")
+    else:
+        messages.error(request, _form_errors(form))
+    return redirect("user_list")
+
+
+@login_required
+@require_POST
+def delete_user(request, pk):
+    _require_root(request)
+    user = get_object_or_404(User, pk=pk)
+    # Can't delete yourself — that would risk locking the last admin out.
+    if user.pk == request.user.pk:
+        messages.error(request, "You can’t delete your own account.")
+        return redirect("user_list")
+    username = user.username
+    user.delete()
+    messages.success(request, f"Deleted user “{username}”.")
+    return redirect("user_list")
 
 
 @login_required
