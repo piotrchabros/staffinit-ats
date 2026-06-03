@@ -174,6 +174,22 @@ class OrchestrationTests(TestCase):
         self.assertEqual(s.status, Score.Status.FAILED)
         self.assertTrue(s.error)
 
+    def test_score_one_marks_failed_on_non_scoring_error(self):
+        # An Anthropic API error (e.g. bad/missing key) must surface as FAILED,
+        # not leave the row stuck PENDING.
+        s = create_pending_score(role=self.role, candidate=self.cand, cv=self.cv)
+
+        class _Boom:
+            class messages:
+                @staticmethod
+                def create(**kw):
+                    raise RuntimeError("AuthenticationError: invalid x-api-key")
+
+        score_one(s.pk, service=ScoringService(client=_Boom()))
+        s.refresh_from_db()
+        self.assertEqual(s.status, Score.Status.FAILED)
+        self.assertIn("x-api-key", s.error)
+
     def test_score_one_on_scored_row_is_noop(self):
         s = create_pending_score(role=self.role, candidate=self.cand, cv=self.cv)
         score_one(s.pk, service=fake_service())

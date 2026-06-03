@@ -23,10 +23,10 @@ from ats.models import (
     ScreeningSet,
 )
 
-from .anonymize import AnonymizationError, AnonymizationService
-from .evaluate import EvaluationError, EvaluationService
-from .screening import ScreeningError, ScreeningService
-from .service import ScoringError, ScoringService
+from .anonymize import AnonymizationService
+from .evaluate import EvaluationService
+from .screening import ScreeningService
+from .service import ScoringService
 
 
 class NoActiveRubric(Exception):
@@ -97,7 +97,10 @@ def score_one(score_id: int, *, service: ScoringService | None = None) -> Score:
             rubric_criteria=score.rubric.criteria,
             cv_text=score.cv.parsed_text,
         )
-    except ScoringError as exc:
+    except Exception as exc:
+        # ANY failure (validation OR an Anthropic API error like a missing/invalid
+        # key, which the SDK has already retried for transient cases) must mark the
+        # row FAILED with the message — never leave it silently stuck PENDING.
         score.mark_failed(exc)
         return score
 
@@ -167,7 +170,7 @@ def generate_screening(screening_id: int, *, service: ScreeningService | None = 
             cv_text=sset.cv.parsed_text,
             rubric_criteria=criteria,
         )
-    except ScreeningError as exc:
+    except Exception as exc:  # incl. Anthropic API errors -> visible FAILED, not stuck
         sset.mark_failed(exc)
         return sset
     sset.mark_generated(questions=questions, model_version=model_version)
@@ -193,7 +196,7 @@ def generate_anonymized_cv(anon_id: int, *, service: AnonymizationService | None
             candidate_name=acv.candidate.full_name,
             candidate_email=acv.candidate.email,
         )
-    except AnonymizationError as exc:
+    except Exception as exc:  # incl. Anthropic API errors -> visible FAILED, not stuck
         acv.mark_failed(exc)
         return acv
     acv.mark_generated(data=data, model_version=model_version)
@@ -230,7 +233,7 @@ def generate_evaluation(eval_id: int, *, service: EvaluationService | None = Non
             rubric_criteria=criteria,
             transcript=ev.transcript,
         )
-    except EvaluationError as exc:
+    except Exception as exc:  # incl. Anthropic API errors -> visible FAILED, not stuck
         ev.mark_failed(exc)
         return ev
     ev.mark_generated(result=result, model_version=model_version)
