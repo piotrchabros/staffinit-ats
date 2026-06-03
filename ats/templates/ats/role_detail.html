@@ -121,17 +121,72 @@
     <p class="muted">No candidates yet. Add one below.</p>
   {% endif %}
 
+  <style>
+    .dropzone { border:2px dashed var(--line); border-radius:10px; padding:1.6rem 1rem;
+      text-align:center; cursor:pointer; transition:border-color .15s, background .15s; }
+    .dropzone.drag { border-color:var(--accent); background:#f0fbf9; }
+    .dropzone input[type=file] { display:none; }
+    #dz-list { list-style:none; padding:0; margin:.6rem 0 0; font-size:.85rem; }
+    #dz-list li { padding:.1rem 0; }
+  </style>
+
   <div class="card" style="margin-top:1.5rem">
-    <strong>Add candidate</strong>
+    <strong>Add candidates</strong>
+    <p class="muted" style="font-size:.85rem; margin:.2rem 0 .8rem">
+      Drop one or more CV files — the name and email are read from each CV automatically.
+    </p>
     <form method="post" action="{% url 'add_candidate' role.pk %}" enctype="multipart/form-data">
       {% csrf_token %}
-      <div class="grid">
-        <div><label for="{{ add_form.full_name.id_for_label }}">Full name</label>{{ add_form.full_name }}</div>
-        <div><label for="{{ add_form.email.id_for_label }}">Email</label>{{ add_form.email }}</div>
+      <div id="dropzone" class="dropzone">
+        <div>Drop CV files here, or <strong>click to choose</strong> (PDF or DOCX)</div>
+        {{ add_form.cv_files }}
+        <ul id="dz-list" class="muted"></ul>
       </div>
-      <label for="{{ add_form.cv_file.id_for_label }}">CV file (PDF or DOCX)</label>{{ add_form.cv_file }}
-      <label for="{{ add_form.pasted_text.id_for_label }}">…or paste CV text</label>{{ add_form.pasted_text }}
-      <div style="margin-top:.8rem"><button type="submit">Add candidate</button></div>
+
+      <details style="margin-top:.8rem">
+        <summary>More options (paste text, or set name/email manually)</summary>
+        <label for="{{ add_form.pasted_text.id_for_label }}">Paste a single CV's text</label>
+        {{ add_form.pasted_text }}
+        <div class="grid" style="margin-top:.5rem">
+          <div><label for="{{ add_form.full_name.id_for_label }}">Full name (optional)</label>{{ add_form.full_name }}</div>
+          <div><label for="{{ add_form.email.id_for_label }}">Email (optional)</label>{{ add_form.email }}</div>
+        </div>
+        <p class="muted" style="font-size:.8rem">Only used when a CV can't be read or has no email — and only when adding a single CV.</p>
+      </details>
+
+      <div style="margin-top:.9rem"><button type="submit">Add candidates</button></div>
     </form>
   </div>
+
+  <script>
+    (function () {
+      var dz = document.getElementById('dropzone');
+      var input = document.getElementById('{{ add_form.cv_files.id_for_label }}');
+      var list = document.getElementById('dz-list');
+      if (!dz || !input) return;
+      function render() {
+        list.innerHTML = '';
+        Array.prototype.forEach.call(input.files, function (f) {
+          var li = document.createElement('li');
+          li.textContent = '✓ ' + f.name;
+          list.appendChild(li);
+        });
+      }
+      dz.addEventListener('click', function (e) { if (e.target !== input) input.click(); });
+      input.addEventListener('change', render);
+      ['dragover', 'dragenter'].forEach(function (ev) {
+        dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('drag'); });
+      });
+      ['dragleave', 'dragend', 'drop'].forEach(function (ev) {
+        dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('drag'); });
+      });
+      dz.addEventListener('drop', function (e) {
+        var dt = new DataTransfer();
+        Array.prototype.forEach.call(input.files, function (f) { dt.items.add(f); });
+        Array.prototype.forEach.call(e.dataTransfer.files, function (f) { dt.items.add(f); });
+        input.files = dt.files;
+        render();
+      });
+    })();
+  </script>
 {% endblock %}

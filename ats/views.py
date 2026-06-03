@@ -26,7 +26,8 @@ from django.views.decorators.http import require_POST
 
 from ats import tasks
 from ats.forms import AddCandidateForm, PasteTextForm, RoleForm
-from ats.ingestion.ingest import ingest_cv_file, ingest_pasted_cv
+from ats.ingestion.parse import extract_text
+from ats.scoring import contact
 from ats.models import (
     AnonymizedCV,
     CV,
@@ -158,28 +159,77 @@ def add_candidate(request, pk):
         )
         return redirect("role_detail", pk=role.pk)
 
-    email = form.cleaned_data["email"].strip().lower()
+    files = request.FILES.getlist("cv_files")
+    pasted = form.cleaned_data.get("pasted_text", "").strip()
+    inputs = [("file", f) for f in files]
+    if pasted:
+        inputs.append(("paste", pasted))
+    # The manual name/email are a fallback only when there's a single input —
+    # one fallback email can't apply to a batch of files.
+    single = len(inputs) == 1
+    fb_name = form.cleaned_data.get("full_name", "").strip() if single else ""
+    fb_email = form.cleaned_data.get("email", "").strip().lower() if single else ""
+
+    queued, waiting, skipped = [], [], []
+    for kind, payload in inputs:
+        outcome, label = _intake_cv(role, kind, payload, fb_name=fb_name, fb_email=fb_email)
+        {"queued": queued, "waiting": waiting, "skipped": skipped}[outcome].append(label)
+
+    if queued:
+        messages.success(request, f"Added & queued for scoring: {', '.join(queued)}.")
+    if waiting:
+        messages.info(request, f"Added, awaiting CV text (unreadable file): {', '.join(waiting)}.")
+    if skipped:
+        messages.warning(request, f"Skipped (no email found): {', '.join(skipped)}.")
+    return redirect("role_detail", pk=role.pk)
+
+
+def _intake_cv(role, kind, payload, *, fb_name, fb_email):
+    """Bring one CV (uploaded file or pasted text) into the role.
+
+    Auto-extracts name/email from the CV; falls back to fb_name/fb_email. Returns
+    (outcome, label) where outcome is 'queued' | 'waiting' | 'skipped'.
+    """
+    if kind == "file":
+        data = payload.read()
+        result = extract_text(getattr(payload, "name", ""), data)
+        text = result.text if result.ok else ""
+        parser = result.parser
+        source_label = getattr(payload, "name", "file")
+    else:  # paste
+        text = payload
+        parser = "manual-paste"
+        source_label = "pasted CV"
+
+    info = contact.extract_contact(text) if text.strip() else {}
+    email = (info.get("email") or fb_email or "").strip().lower()
+    name = (info.get("full_name") or fb_name or "").strip()
+    if not email:
+        # Can't create/dedup a candidate without an email.
+        return ("skipped", source_label)
+    if not name:
+        name = email.split("@", 1)[0]  # last resort
+
     candidate, _ = Candidate.objects.get_or_create(
-        email=email, defaults={"full_name": form.cleaned_data["full_name"]}
+        email=email, defaults={"full_name": name, "phone": info.get("phone", "")}
     )
 
-    cv_file = form.cleaned_data.get("cv_file")
-    if cv_file:
-        cv, result = ingest_cv_file(candidate, cv_file)
-        if not result.ok:
-            messages.warning(
-                request, f"{candidate.full_name}: {result.reason} — paste the CV text below."
-            )
+    if kind == "file":
+        try:
+            payload.seek(0)
+        except (AttributeError, OSError):
+            pass
+        cv = CV.objects.create(
+            candidate=candidate, raw_file=payload, parsed_text=text, parser_version=parser
+        )
     else:
-        cv = ingest_pasted_cv(candidate, form.cleaned_data["pasted_text"])
+        cv = CV.objects.create(candidate=candidate, parsed_text=text, parser_version=parser)
 
     score = create_pending_score(role=role, candidate=candidate, cv=cv)
     if cv.parsed_text.strip():
         tasks.score_candidate.defer(score_id=score.pk)
-        messages.success(request, f"{candidate.full_name} added and queued for scoring.")
-    else:
-        messages.info(request, f"{candidate.full_name} added — waiting for CV text.")
-    return redirect("role_detail", pk=role.pk)
+        return ("queued", candidate.full_name)
+    return ("waiting", candidate.full_name)  # unreadable file -> needs manual paste
 
 
 @login_required

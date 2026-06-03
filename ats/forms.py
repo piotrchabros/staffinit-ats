@@ -12,21 +12,43 @@ class RoleForm(forms.ModelForm):
         }
 
 
-class AddCandidateForm(forms.Form):
-    """Add a candidate to a role: name + email, plus either a CV file OR pasted text."""
+class MultipleFileInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
 
-    full_name = forms.CharField(max_length=255)
-    email = forms.EmailField()
-    cv_file = forms.FileField(required=False, help_text="PDF or DOCX")
+
+class MultipleFileField(forms.FileField):
+    """A FileField that accepts several files (Django dropped multiple support
+    from the default widget; this is the documented re-add)."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("widget", MultipleFileInput(attrs={"multiple": True}))
+        super().__init__(*args, **kwargs)
+
+    def clean(self, data, initial=None):
+        single = super().clean
+        if isinstance(data, (list, tuple)):
+            return [single(d, initial) for d in data]
+        return [single(data, initial)] if data else []
+
+
+class AddCandidateForm(forms.Form):
+    """Add candidate(s) to a role. Drop one or more CV files — name + email are
+    auto-extracted from each CV. The fields below are optional overrides / a
+    fallback when a file can't be read or has no email.
+    """
+
+    cv_files = MultipleFileField(required=False, help_text="PDF or DOCX — drop several at once.")
     pasted_text = forms.CharField(
         required=False,
-        widget=forms.Textarea(attrs={"rows": 8, "placeholder": "...or paste the CV text"}),
+        widget=forms.Textarea(attrs={"rows": 6, "placeholder": "…or paste a single CV's text"}),
     )
+    full_name = forms.CharField(max_length=255, required=False)
+    email = forms.EmailField(required=False)
 
     def clean(self):
         cleaned = super().clean()
-        if not cleaned.get("cv_file") and not cleaned.get("pasted_text", "").strip():
-            raise forms.ValidationError("Upload a CV file or paste the CV text.")
+        if not cleaned.get("cv_files") and not cleaned.get("pasted_text", "").strip():
+            raise forms.ValidationError("Drop at least one CV file, or paste CV text.")
         return cleaned
 
 
