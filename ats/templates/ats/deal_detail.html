@@ -21,7 +21,7 @@
     {% if documents %}
       <ul style="margin:.6rem 0 .8rem; padding-left:1.1rem">
         {% for doc in documents %}
-          <li><a href="{{ doc.file.url }}" target="_blank" rel="noopener">{{ doc.original_filename|default:doc.file.name }}</a>
+          <li><a href="{% url 'deal_document_file' doc.pk %}" target="_blank" rel="noopener">{{ doc.original_filename|default:doc.file.name }}</a>
             <span class="muted" style="font-size:.78rem"> — {{ doc.uploaded_at|date:"Y-m-d" }}</span></li>
         {% endfor %}
       </ul>

@@ -32,28 +32,41 @@ DEFAULT_STAGES = ["New", "Screening", "Shortlisted", "Submitted", "Rejected"]
 
 
 def ensure_default_stages(role: Role) -> None:
-    """Give a role its default kanban lanes if it has none yet."""
+    """Give a role its default kanban lanes if it has none yet.
+
+    Called from both the web (role_detail) and the worker (ensure_pipeline_card),
+    so two callers can race on a brand-new role. ignore_conflicts + the
+    uniq_stage_role_name constraint make the seeding idempotent: the loser's
+    inserts are dropped instead of producing duplicate lanes.
+    """
     if not role.stages.exists():
         Stage.objects.bulk_create(
-            [Stage(role=role, name=name, position=i) for i, name in enumerate(DEFAULT_STAGES)]
+            [Stage(role=role, name=name, position=i) for i, name in enumerate(DEFAULT_STAGES)],
+            ignore_conflicts=True,
         )
 
 
 def ensure_pipeline_card(*, role: Role, candidate: Candidate) -> PipelineCard:
-    """Idempotently put a candidate on the role's board, in the first lane."""
+    """Idempotently put a candidate on the role's board, in the first lane.
+
+    get_or_create (not filter-then-create) so concurrent callers — the web
+    add-candidate path and a background scoring job for the same (role, candidate)
+    — can't both insert and trip the uniq_card_role_candidate constraint.
+    """
     ensure_default_stages(role)
-    card = PipelineCard.objects.filter(role=role, candidate=candidate).first()
-    if card:
-        return card
     first_stage = role.stages.first()
     last_pos = (
         PipelineCard.objects.filter(role=role, stage=first_stage)
         .order_by("-position").values_list("position", flat=True).first()
     )
-    return PipelineCard.objects.create(
-        role=role, candidate=candidate, stage=first_stage,
-        position=(last_pos + 1) if last_pos is not None else 0,
+    card, _created = PipelineCard.objects.get_or_create(
+        role=role, candidate=candidate,
+        defaults={
+            "stage": first_stage,
+            "position": (last_pos + 1) if last_pos is not None else 0,
+        },
     )
+    return card
 
 from .anonymize import AnonymizationService
 from .contact import extract_contact

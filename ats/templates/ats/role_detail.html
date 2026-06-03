@@ -94,6 +94,31 @@
                   <span class="chip {{ c.best_score.status }}">{{ c.best_score.get_status_display }}</span>
                 {% else %}<span class="muted">—</span>{% endif %}
               </div>
+              {% if c.best_score.per_criterion %}
+                <details class="crit">
+                  <summary class="crit-mini">{% for name, crit in c.best_score.per_criterion.items %}{{ crit.score|floatformat:0 }}{% if not forloop.last %}·{% endif %}{% endfor %} <span class="muted" style="font-weight:400">criteria</span></summary>
+                  {% for name, crit in c.best_score.per_criterion.items %}
+                    <div style="margin-top:.3rem"><strong>{{ name }}: {{ crit.score|floatformat:0 }}</strong>
+                      <div class="muted" style="font-size:.76rem">{{ crit.rationale }}</div></div>
+                  {% endfor %}
+                </details>
+              {% endif %}
+              {% if c.failed_score %}
+                <form method="post" action="{% url 'retry_score' role.pk c.failed_score.pk %}" style="margin:.4rem 0 0">
+                  {% csrf_token %}<button class="secondary" type="submit">Retry scoring</button>
+                </form>
+                {% if c.failed_score.error %}<div class="muted" style="font-size:.72rem; margin-top:.2rem">{{ c.failed_score.error|truncatechars:120 }}</div>{% endif %}
+              {% endif %}
+              {% if c.waiting_cv %}
+                <details class="paste" style="margin-top:.4rem">
+                  <summary>Paste CV text</summary>
+                  <form method="post" action="{% url 'paste_cv' role.pk c.waiting_cv.pk %}" style="margin-top:.4rem">
+                    {% csrf_token %}
+                    <textarea name="parsed_text" rows="4" placeholder="The file wasn't readable — paste the CV text…" required></textarea>
+                    <div style="margin-top:.3rem"><button type="submit">Save &amp; score</button></div>
+                  </form>
+                </details>
+              {% endif %}
               <div class="links">
                 <a href="{% url 'screening_detail' role.pk c.candidate.pk %}">Screening</a> ·
                 <a href="{% url 'anonymized_cv_detail' role.pk c.candidate.pk %}">Anon CV</a> ·
@@ -117,6 +142,16 @@
         <input type="file" name="cv_files" id="id_cv_files" multiple>
         <ul id="dz-list" class="muted"></ul>
       </div>
+      <details style="margin-top:.8rem">
+        <summary>More options — paste a CV, or set name &amp; email manually</summary>
+        <div style="margin-top:.6rem">
+          <label for="{{ add_form.pasted_text.id_for_label }}">Paste a single CV's text</label>{{ add_form.pasted_text }}
+          <div class="grid" style="gap:.6rem">
+            <div><label for="{{ add_form.full_name.id_for_label }}">Name (fallback)</label>{{ add_form.full_name }}</div>
+            <div><label for="{{ add_form.email.id_for_label }}">Email (fallback)</label>{{ add_form.email }}</div>
+          </div>
+        </div>
+      </details>
       <div style="margin-top:.9rem"><button type="submit">Add candidates</button></div>
     </form>
   </div>
@@ -134,7 +169,15 @@
       var moveUrl = "{% url 'move_card' role.pk %}";
 
       board.querySelectorAll('.kcard').forEach(function (card) {
-        card.addEventListener('dragstart', function () { dragging = card; card.classList.add('dragging'); });
+        card.addEventListener('dragstart', function (e) {
+          // Don't start a drag when the user is interacting with an inline control
+          // (retry button, paste textarea, criteria toggle, a link).
+          if (e.target.closest('a, button, textarea, input, summary, label')) {
+            e.preventDefault();
+            return;
+          }
+          dragging = card; card.classList.add('dragging');
+        });
         card.addEventListener('dragend', function () { card.classList.remove('dragging'); dragging = null; });
       });
 
@@ -190,16 +233,6 @@
         });
       });
     })();
-    // ---- Add-candidate dropzone ----
-    (function () {
-      var dz = document.getElementById('dropzone'), input = document.getElementById('id_cv_files'), list = document.getElementById('dz-list');
-      if (!dz || !input) return;
-      function render() { list.innerHTML = ''; Array.prototype.forEach.call(input.files, function (f) { var li = document.createElement('li'); li.textContent = '✓ ' + f.name; list.appendChild(li); }); }
-      dz.addEventListener('click', function (e) { if (e.target !== input) input.click(); });
-      input.addEventListener('change', render);
-      ['dragover', 'dragenter'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('drag'); }); });
-      ['dragleave', 'dragend', 'drop'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('drag'); }); });
-      dz.addEventListener('drop', function (e) { var dt = new DataTransfer(); Array.prototype.forEach.call(input.files, function (f) { dt.items.add(f); }); Array.prototype.forEach.call(e.dataTransfer.files, function (f) { dt.items.add(f); }); input.files = dt.files; render(); });
-    })();
   </script>
+  {% include "ats/_dropzone_js.html" %}
 {% endblock %}

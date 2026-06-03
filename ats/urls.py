@@ -33,4 +33,5 @@ urlpatterns = [
     path("crm/companies/<int:pk>/deals/add/", views.add_deal, name="add_deal"),
     path("crm/deals/<int:pk>/", views.deal_detail, name="deal_detail"),
     path("crm/deals/<int:pk>/documents/add/", views.add_deal_document, name="add_deal_document"),
+    path("crm/documents/<int:doc_id>/file/", views.deal_document_file, name="deal_document_file"),
 ]

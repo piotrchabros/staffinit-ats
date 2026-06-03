@@ -483,6 +483,12 @@ class Stage(models.Model):
 
     class Meta:
         ordering = ["position", "id"]
+        constraints = [
+            # Lane names are unique per role. This also makes the default-lane
+            # seeding race-safe: a concurrent web+worker bulk_create(ignore_conflicts)
+            # can't produce duplicate "New"/"Screening"/... lanes.
+            models.UniqueConstraint(fields=["role", "name"], name="uniq_stage_role_name"),
+        ]
 
     def __str__(self):
         return f"{self.role_id}:{self.name}"

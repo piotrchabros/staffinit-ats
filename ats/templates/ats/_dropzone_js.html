@@ -1,0 +1,33 @@
+{% comment %}
+Shared CV dropzone behaviour: click-to-open, file-list preview, and drag-drop
+that appends (not replaces) dropped files. Expects #dropzone / #id_cv_files /
+#dz-list in the including template. Pairs with the .dropzone CSS in base.html.
+{% endcomment %}
+<script>
+  (function () {
+    var dz = document.getElementById('dropzone'),
+        input = document.getElementById('id_cv_files'),
+        list = document.getElementById('dz-list');
+    if (!dz || !input) return;
+    function render() {
+      list.innerHTML = '';
+      Array.prototype.forEach.call(input.files, function (f) {
+        var li = document.createElement('li'); li.textContent = '✓ ' + f.name; list.appendChild(li);
+      });
+    }
+    dz.addEventListener('click', function (e) { if (e.target !== input) input.click(); });
+    input.addEventListener('change', render);
+    ['dragover', 'dragenter'].forEach(function (ev) {
+      dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add('drag'); });
+    });
+    ['dragleave', 'dragend', 'drop'].forEach(function (ev) {
+      dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove('drag'); });
+    });
+    dz.addEventListener('drop', function (e) {
+      var dt = new DataTransfer();
+      Array.prototype.forEach.call(input.files, function (f) { dt.items.add(f); });
+      Array.prototype.forEach.call(e.dataTransfer.files, function (f) { dt.items.add(f); });
+      input.files = dt.files; render();
+    });
+  })();
+</script>

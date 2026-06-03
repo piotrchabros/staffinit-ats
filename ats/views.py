@@ -22,6 +22,7 @@ import os
 from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -90,6 +91,41 @@ def _latest_score(role, candidate):
     )
 
 
+def _form_errors(form) -> str:
+    """Flatten a form's errors into one user-facing string for messages.error."""
+    return "; ".join(f"{k}: {', '.join(v)}" for k, v in form.errors.items())
+
+
+def _overall_key(score):
+    """Sort key for picking the best Score: SCORED rows always beat unscored, and
+    a real overall of 0.0 ranks correctly (never confused with 'no score')."""
+    return (score.overall is not None, score.overall if score.overall is not None else 0.0)
+
+
+def _serve_fieldfile(fieldfile):
+    """Stream a model FileField's bytes inline to the caller, or 404.
+
+    Used for every PII / confidential file (CVs, signed agreements) so they are
+    served through an auth-checked view rather than a public MEDIA_URL.
+    """
+    if not fieldfile:
+        raise Http404("No file.")
+    try:
+        fh = fieldfile.open("rb")
+    except (FileNotFoundError, OSError):
+        raise Http404("The file is no longer available.")
+    return FileResponse(fh, as_attachment=False, filename=os.path.basename(fieldfile.name) or "file")
+
+
+def _attach_documents(deal, files):
+    """Create a DealDocument per uploaded file. Shared by add_deal + add_deal_document."""
+    for f in files:
+        DealDocument.objects.create(
+            deal=deal, file=f, original_filename=(getattr(f, "name", "") or "")[:255]
+        )
+    return len(files)
+
+
 @login_required
 def role_list(request):
     roles = Role.objects.annotate(
@@ -121,31 +157,50 @@ def role_detail(request, pk):
     role = get_object_or_404(Role, pk=pk)
     ensure_default_stages(role)
     stages = list(role.stages.all())
+    first_stage_id = stages[0].id if stages else None
 
-    # Best score per candidate on this role (prefer the highest scored overall).
-    best = {}
-    for s in Score.objects.filter(role=role).only("candidate_id", "status", "overall"):
+    # One pass over this role's scores builds, per candidate: the best score
+    # (SCORED beats unscored; a real 0.0 ranks correctly), a FAILED score to
+    # offer a retry, and a CV awaiting manual text (unreadable upload). These
+    # drive the per-card score / retry / paste controls, so we need the rows
+    # (not just a max), but we fetch only the fields used.
+    best, failed, waiting = {}, {}, {}
+    scores = (
+        Score.objects.filter(role=role)
+        .select_related("cv")
+        .only("candidate_id", "status", "overall", "per_criterion",
+              "cv__parsed_text", "cv__raw_file")
+    )
+    for s in scores:
         cur = best.get(s.candidate_id)
-        if cur is None or (s.overall or -1) > (cur.overall or -1):
+        if cur is None or _overall_key(s) > _overall_key(cur):
             best[s.candidate_id] = s
+        if s.status == Score.Status.FAILED:
+            failed[s.candidate_id] = s
+        if s.cv.needs_manual_text:
+            waiting[s.candidate_id] = s.cv
 
-    cards = (
-        PipelineCard.objects.filter(role=role)
+    # Archived candidates are hidden from the board (soft-delete contract).
+    cards = list(
+        PipelineCard.objects.filter(role=role, candidate__is_archived=False)
         .select_related("candidate", "stage")
         .prefetch_related("candidate__cvs")  # backs candidate.original_cv on each card
     )
     by_stage = {st.id: [] for st in stages}
     for c in cards:
         c.best_score = best.get(c.candidate_id)
-        by_stage.setdefault(c.stage_id if c.stage_id in by_stage else stages[0].id, []).append(c)
-    board = [(st, by_stage.get(st.id, [])) for st in stages]
+        c.failed_score = failed.get(c.candidate_id)
+        c.waiting_cv = waiting.get(c.candidate_id)
+        # Cards orphaned by a deleted lane (stage_id None) fall to the first lane.
+        by_stage[c.stage_id if c.stage_id in by_stage else first_stage_id].append(c)
+    board = [(st, by_stage[st.id]) for st in stages]
 
     uploads = CandidateUpload.objects.filter(role=role)
     return render(request, "ats/role_detail.html", {
         "role": role,
         "board": board,
         "stages": stages,
-        "card_count": cards.count(),
+        "card_count": len(cards),
         "active_rubric": Rubric.active(),
         "add_form": AddCandidateForm(),
         "processing_count": uploads.filter(
@@ -165,8 +220,10 @@ def move_card(request, pk):
         card_ids = json.loads(request.POST.get("card_ids", "[]"))
     except (ValueError, TypeError):
         return JsonResponse({"ok": False, "error": "bad card_ids"}, status=400)
-    for i, cid in enumerate(card_ids):
-        PipelineCard.objects.filter(pk=cid, role=role).update(stage=stage, position=i)
+    # Atomic so an interrupted request can't leave the lane half-reordered.
+    with transaction.atomic():
+        for i, cid in enumerate(card_ids):
+            PipelineCard.objects.filter(pk=cid, role=role).update(stage=stage, position=i)
     return JsonResponse({"ok": True})
 
 
@@ -177,7 +234,13 @@ def add_stage(request, pk):
     name = (request.POST.get("name") or "").strip()[:100]
     if name:
         last = role.stages.order_by("-position").values_list("position", flat=True).first()
-        Stage.objects.create(role=role, name=name, position=(last + 1) if last is not None else 0)
+        try:
+            # atomic so a constraint violation rolls back cleanly without
+            # poisoning the surrounding transaction.
+            with transaction.atomic():
+                Stage.objects.create(role=role, name=name, position=(last + 1) if last is not None else 0)
+        except IntegrityError:  # uniq_stage_role_name — a lane with this name exists
+            messages.error(request, f"This role already has a “{name}” lane.")
     return redirect("role_detail", pk=role.pk)
 
 
@@ -187,9 +250,13 @@ def rename_stage(request, pk, stage_id):
     role = get_object_or_404(Role, pk=pk)
     stage = get_object_or_404(Stage, pk=stage_id, role=role)
     name = (request.POST.get("name") or "").strip()[:100]
-    if name:
+    if name and name != stage.name:
         stage.name = name
-        stage.save(update_fields=["name"])
+        try:
+            with transaction.atomic():
+                stage.save(update_fields=["name"])
+        except IntegrityError:  # uniq_stage_role_name
+            messages.error(request, f"This role already has a “{name}” lane.")
     return redirect("role_detail", pk=role.pk)
 
 
@@ -271,14 +338,19 @@ def cv_file(request, cv_id):
     cv = get_object_or_404(CV, pk=cv_id)
     if not cv.raw_file:
         raise Http404("No original file for this CV (it was pasted as text).")
-    try:
-        fh = cv.raw_file.open("rb")
-    except (FileNotFoundError, OSError):
-        raise Http404("The original file is no longer available.")
-    filename = os.path.basename(cv.raw_file.name) or "cv"
-    # Inline (as_attachment=False) so PDFs open in the browser; the filename is
-    # still offered for "save as". FileResponse guesses the content type.
-    return FileResponse(fh, as_attachment=False, filename=filename)
+    return _serve_fieldfile(cv.raw_file)
+
+
+@login_required
+def deal_document_file(request, doc_id):
+    """Stream a signed-agreement / deal document to logged-in staff.
+
+    These files hold confidential commercial terms (salary, client rate), so —
+    like CVs — they are served through this auth-gated view, never a public
+    MEDIA_URL (MEDIA is not served by the production image at all).
+    """
+    doc = get_object_or_404(DealDocument, pk=doc_id)
+    return _serve_fieldfile(doc.file)
 
 
 @login_required
@@ -333,9 +405,7 @@ def add_candidate(request, pk):
 
     form = AddCandidateForm(request.POST, request.FILES)
     if not form.is_valid():
-        messages.error(
-            request, "; ".join(f"{k}: {', '.join(v)}" for k, v in form.errors.items())
-        )
+        messages.error(request, _form_errors(form))
         return redirect("role_detail", pk=role.pk)
 
     files = request.FILES.getlist("cv_files")
@@ -582,7 +652,7 @@ def add_company(request):
         company = form.save()
         messages.success(request, f"Added company “{company.name}”.")
         return redirect("company_detail", pk=company.pk)
-    messages.error(request, "; ".join(f"{k}: {', '.join(v)}" for k, v in form.errors.items()))
+    messages.error(request, _form_errors(form))
     return redirect("company_list")
 
 
@@ -611,7 +681,7 @@ def add_person(request, pk):
         person.save()
         messages.success(request, f"Added contact {person.full_name}.")
     else:
-        messages.error(request, "; ".join(f"{k}: {', '.join(v)}" for k, v in form.errors.items()))
+        messages.error(request, _form_errors(form))
     return redirect("company_detail", pk=company.pk)
 
 
@@ -625,13 +695,10 @@ def add_deal(request, pk):
         deal.company = company
         deal.save()
         # Optional documents dropped alongside the deal form.
-        for f in request.FILES.getlist("documents"):
-            DealDocument.objects.create(
-                deal=deal, file=f, original_filename=(getattr(f, "name", "") or "")[:255]
-            )
+        _attach_documents(deal, request.FILES.getlist("documents"))
         messages.success(request, f"Signed deal recorded: {deal.developer_name}.")
         return redirect("deal_detail", pk=deal.pk)
-    messages.error(request, "; ".join(f"{k}: {', '.join(v)}" for k, v in form.errors.items()))
+    messages.error(request, _form_errors(form))
     return redirect("company_detail", pk=company.pk)
 
 
@@ -648,13 +715,9 @@ def deal_detail(request, pk):
 @require_POST
 def add_deal_document(request, pk):
     deal = get_object_or_404(Deal, pk=pk)
-    files = request.FILES.getlist("documents")
-    for f in files:
-        DealDocument.objects.create(
-            deal=deal, file=f, original_filename=(getattr(f, "name", "") or "")[:255]
-        )
-    if files:
-        messages.success(request, f"Uploaded {len(files)} document(s).")
+    n = _attach_documents(deal, request.FILES.getlist("documents"))
+    if n:
+        messages.success(request, f"Uploaded {n} document(s).")
     else:
         messages.error(request, "Choose at least one file to upload.")
     return redirect("deal_detail", pk=deal.pk)
