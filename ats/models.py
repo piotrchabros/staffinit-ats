@@ -265,14 +265,17 @@ class Score(models.Model):
         self.save()
 
 
-class ScreeningSet(models.Model):
-    """AI-generated screening questions for one candidate on one role.
+class GeneratedArtifact(models.Model):
+    """Abstract base for the regenerable, AI-generated per-(role, candidate)
+    artifacts: screening questions, anonymized CV, and evaluation.
 
-    Unlike Score, this is a working prep aid, not a comparable source-of-truth
-    artifact — so it is regenerable: one current set per (role, candidate), and
-    regenerating overwrites it in place.
+    Shares the lifecycle (status / model_version / error / timestamps) and
+    mark_failed. Each concrete model adds its own FKs, payload field, unique
+    constraint, and mark_generated (the payload field name differs).
 
-    questions shape (JSON): [{"topic": str, "question": str, "what_to_listen_for": str}]
+    Score is deliberately NOT a GeneratedArtifact: it is an immutable, comparable
+    source-of-truth row with a different status set (SCORED, not GENERATED) and
+    its own immutability guard.
     """
 
     class Status(models.TextChoices):
@@ -280,21 +283,37 @@ class ScreeningSet(models.Model):
         GENERATED = "generated", "Generated"
         FAILED = "failed", "Failed"
 
-    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="screening_sets")
-    candidate = models.ForeignKey(
-        Candidate, on_delete=models.CASCADE, related_name="screening_sets"
-    )
-    cv = models.ForeignKey(CV, on_delete=models.CASCADE, related_name="screening_sets")
-
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
-    questions = models.JSONField(default=list)
     model_version = models.CharField(max_length=128, blank=True)
     error = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        abstract = True
         ordering = ["-updated_at"]
+
+    def mark_failed(self, error):
+        self.error = str(error)[:5000]
+        self.status = self.Status.FAILED
+        self.save()
+
+
+class ScreeningSet(GeneratedArtifact):
+    """AI-generated screening questions for one candidate on one role. Regenerable;
+    one current set per (role, candidate), overwritten in place.
+
+    questions shape (JSON): [{"topic": str, "question": str, "what_to_listen_for": str}]
+    """
+
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="screening_sets")
+    candidate = models.ForeignKey(
+        Candidate, on_delete=models.CASCADE, related_name="screening_sets"
+    )
+    cv = models.ForeignKey(CV, on_delete=models.CASCADE, related_name="screening_sets")
+    questions = models.JSONField(default=list)
+
+    class Meta(GeneratedArtifact.Meta):
         constraints = [
             models.UniqueConstraint(
                 fields=["role", "candidate"], name="uniq_screening_role_candidate"
@@ -312,17 +331,10 @@ class ScreeningSet(models.Model):
         self.status = self.Status.GENERATED
         self.save()
 
-    def mark_failed(self, error):
-        self.error = str(error)[:5000]
-        self.status = self.Status.FAILED
-        self.save()
 
-
-class AnonymizedCV(models.Model):
+class AnonymizedCV(GeneratedArtifact):
     """An anonymized, structured rewrite of a candidate's CV for client submission.
-
-    PII (name, contact details) is stripped so the agency can present the
-    candidate without revealing identity. Regenerable, like ScreeningSet.
+    PII (name, contact, employer names) is stripped. Regenerable.
 
     data shape (JSON):
         {headline, summary, years_experience, skills: [str],
@@ -330,26 +342,14 @@ class AnonymizedCV(models.Model):
          education: [{qualification, field, period}]}
     """
 
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        GENERATED = "generated", "Generated"
-        FAILED = "failed", "Failed"
-
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="anonymized_cvs")
     candidate = models.ForeignKey(
         Candidate, on_delete=models.CASCADE, related_name="anonymized_cvs"
     )
     cv = models.ForeignKey(CV, on_delete=models.CASCADE, related_name="anonymized_cvs")
-
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     data = models.JSONField(default=dict)
-    model_version = models.CharField(max_length=128, blank=True)
-    error = models.TextField(blank=True)
-    created_at = models.DateTimeField(default=timezone.now, editable=False)
-    updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        ordering = ["-updated_at"]
+    class Meta(GeneratedArtifact.Meta):
         constraints = [
             models.UniqueConstraint(
                 fields=["role", "candidate"], name="uniq_anoncv_role_candidate"
@@ -367,29 +367,17 @@ class AnonymizedCV(models.Model):
         self.status = self.Status.GENERATED
         self.save()
 
-    def mark_failed(self, error):
-        self.error = str(error)[:5000]
-        self.status = self.Status.FAILED
-        self.save()
 
-
-class Evaluation(models.Model):
-    """A post-screening evaluation of a candidate, grounded in the call transcript.
-
-    The transcript is recruiter-provided input (unlike screening/anon which derive
-    purely from the CV). One per (role, candidate); re-running with an updated
-    transcript overwrites the result.
+class Evaluation(GeneratedArtifact):
+    """A post-screening evaluation grounded in the call transcript. The transcript
+    is recruiter-provided input (unlike screening/anon, which derive from the CV).
+    One per (role, candidate); re-running with a new transcript overwrites it.
 
     result shape (JSON):
         {recommendation: "strong_yes|yes|maybe|no", headline, summary,
          strengths: [str], concerns: [str],
          criteria: [{name, assessment, evidence}]}
     """
-
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        GENERATED = "generated", "Generated"
-        FAILED = "failed", "Failed"
 
     RECOMMENDATIONS = {"strong_yes", "yes", "maybe", "no"}
 
@@ -398,17 +386,10 @@ class Evaluation(models.Model):
         Candidate, on_delete=models.CASCADE, related_name="evaluations"
     )
     cv = models.ForeignKey(CV, on_delete=models.CASCADE, related_name="evaluations")
-
     transcript = models.TextField(blank=True)
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     result = models.JSONField(default=dict)
-    model_version = models.CharField(max_length=128, blank=True)
-    error = models.TextField(blank=True)
-    created_at = models.DateTimeField(default=timezone.now, editable=False)
-    updated_at = models.DateTimeField(auto_now=True)
 
-    class Meta:
-        ordering = ["-updated_at"]
+    class Meta(GeneratedArtifact.Meta):
         constraints = [
             models.UniqueConstraint(
                 fields=["role", "candidate"], name="uniq_evaluation_role_candidate"
@@ -424,9 +405,4 @@ class Evaluation(models.Model):
             self.model_version = model_version
         self.error = ""
         self.status = self.Status.GENERATED
-        self.save()
-
-    def mark_failed(self, error):
-        self.error = str(error)[:5000]
-        self.status = self.Status.FAILED
         self.save()

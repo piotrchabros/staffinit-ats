@@ -134,16 +134,21 @@ def score_role(role_id: int, *, service: ScoringService | None = None) -> RoleSc
 # --------------------------------------------------------------------------- #
 # Screening questions (Feature 1)                                             #
 # --------------------------------------------------------------------------- #
-def ensure_screening_set(*, role: Role, candidate: Candidate, cv: CV) -> ScreeningSet:
-    """Idempotently get the (role, candidate) screening set, pinning the CV used."""
-    sset, created = ScreeningSet.objects.get_or_create(
-        role=role, candidate=candidate, defaults={"cv": cv, "status": ScreeningSet.Status.PENDING}
+def _ensure_artifact(model, *, role: Role, candidate: Candidate, cv: CV):
+    """Idempotently get the (role, candidate) GeneratedArtifact row, pinning the CV.
+    Shared by the screening + anonymized-CV ensure_* functions."""
+    obj, created = model.objects.get_or_create(
+        role=role, candidate=candidate, defaults={"cv": cv}
     )
-    if not created and sset.cv_id != cv.pk:
-        sset.cv = cv
-        sset.status = ScreeningSet.Status.PENDING
-        sset.save(update_fields=["cv", "status"])
-    return sset
+    if not created and obj.cv_id != cv.pk:
+        obj.cv = cv
+        obj.status = model.Status.PENDING
+        obj.save(update_fields=["cv", "status"])
+    return obj
+
+
+def ensure_screening_set(*, role: Role, candidate: Candidate, cv: CV) -> ScreeningSet:
+    return _ensure_artifact(ScreeningSet, role=role, candidate=candidate, cv=cv)
 
 
 def generate_screening(screening_id: int, *, service: ScreeningService | None = None) -> ScreeningSet:
@@ -173,15 +178,7 @@ def generate_screening(screening_id: int, *, service: ScreeningService | None = 
 # Anonymized branded CV (Feature 2)                                           #
 # --------------------------------------------------------------------------- #
 def ensure_anonymized_cv(*, role: Role, candidate: Candidate, cv: CV) -> AnonymizedCV:
-    """Idempotently get the (role, candidate) anonymized CV, pinning the CV used."""
-    acv, created = AnonymizedCV.objects.get_or_create(
-        role=role, candidate=candidate, defaults={"cv": cv, "status": AnonymizedCV.Status.PENDING}
-    )
-    if not created and acv.cv_id != cv.pk:
-        acv.cv = cv
-        acv.status = AnonymizedCV.Status.PENDING
-        acv.save(update_fields=["cv", "status"])
-    return acv
+    return _ensure_artifact(AnonymizedCV, role=role, candidate=candidate, cv=cv)
 
 
 def generate_anonymized_cv(anon_id: int, *, service: AnonymizationService | None = None) -> AnonymizedCV:
