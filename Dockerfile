@@ -24,9 +24,10 @@ RUN uv sync --frozen --no-dev
 RUN DJANGO_SECRET_KEY=build-only DJANGO_DEBUG=false \
     uv run python manage.py collectstatic --noinput
 
+RUN chmod +x bin/start.sh
+
 EXPOSE 8000
 
-# Web default. The worker service overrides this with:
-#   uv run python manage.py procrastinate worker --concurrency 4
-# Shell form so $PORT (set by Railway) is expanded.
-CMD uv run gunicorn staffinit.wsgi --bind 0.0.0.0:${PORT:-8000} --workers 3
+# One image, two roles. Default = web (gunicorn). Set SERVICE_ROLE=worker on the
+# worker service to run the procrastinate worker instead. See bin/start.sh.
+CMD ["sh", "bin/start.sh"]
