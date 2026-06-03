@@ -1,0 +1,87 @@
+{% extends "ats/base.html" %}
+{% block title %}{{ company.name }} — StaffInit ATS{% endblock %}
+{% block content %}
+  <p class="muted"><a href="{% url 'company_list' %}">&larr; Companies</a></p>
+  <h1 style="margin-bottom:.1rem">{{ company.name }}</h1>
+  {% if company.website %}<p class="muted"><a href="{{ company.website }}" target="_blank" rel="noopener">{{ company.website }}</a></p>{% endif %}
+  {% if company.notes %}<p>{{ company.notes|linebreaksbr }}</p>{% endif %}
+
+  <div class="grid" style="align-items:start">
+    <div>
+      <h2 style="font-size:1.1rem">Contacts</h2>
+      {% if people %}
+        <table>
+          <thead><tr><th scope="col">Name</th><th scope="col">Contact</th></tr></thead>
+          <tbody>
+            {% for p in people %}
+              <tr>
+                <td data-label="Name"><strong>{{ p.full_name }}</strong>{% if p.title %}<br><span class="muted" style="font-size:.82rem">{{ p.title }}</span>{% endif %}</td>
+                <td data-label="Contact" class="muted" style="font-size:.85rem">
+                  {% if p.email %}{{ p.email }}<br>{% endif %}{{ p.phone }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}<p class="muted">No contacts yet.</p>{% endif %}
+
+      <details class="card" style="margin-top:1rem">
+        <summary><strong>+ Add contact</strong></summary>
+        <form method="post" action="{% url 'add_person' company.pk %}" style="margin-top:.8rem">
+          {% csrf_token %}
+          <label for="{{ person_form.full_name.id_for_label }}">Name</label>{{ person_form.full_name }}
+          <label for="{{ person_form.title.id_for_label }}">Title</label>{{ person_form.title }}
+          <label for="{{ person_form.email.id_for_label }}">Email</label>{{ person_form.email }}
+          <label for="{{ person_form.phone.id_for_label }}">Phone</label>{{ person_form.phone }}
+          <label for="{{ person_form.notes.id_for_label }}">Notes</label>{{ person_form.notes }}
+          <div style="margin-top:.8rem"><button type="submit">Add contact</button></div>
+        </form>
+      </details>
+    </div>
+
+    <div>
+      <h2 style="font-size:1.1rem">Deals</h2>
+      {% if deals %}
+        <table>
+          <thead><tr><th scope="col">Developer</th><th scope="col">Margin</th><th scope="col">Signed</th></tr></thead>
+          <tbody>
+            {% for d in deals %}
+              <tr>
+                <td data-label="Developer">
+                  <a href="{% url 'deal_detail' d.pk %}"><strong>{{ d.developer_name }}</strong></a>
+                  {% if d.role_title %}<br><span class="muted" style="font-size:.82rem">{{ d.role_title }}</span>{% endif %}
+                </td>
+                <td data-label="Margin">
+                  {{ d.margin|floatformat:0 }} {{ d.currency }}
+                  <br><span class="muted" style="font-size:.78rem">{{ d.client_rate|floatformat:0 }} − {{ d.salary|floatformat:0 }}</span>
+                </td>
+                <td data-label="Signed" class="muted">{{ d.signed_date|date:"Y-m-d" }}{% if d.documents.all %}<br><span style="font-size:.78rem">📎 {{ d.documents.all|length }}</span>{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}<p class="muted">No deals yet.</p>{% endif %}
+
+      <details class="card" style="margin-top:1rem">
+        <summary><strong>+ Record a deal</strong></summary>
+        <form method="post" action="{% url 'add_deal' company.pk %}" enctype="multipart/form-data" style="margin-top:.8rem">
+          {% csrf_token %}
+          <label for="{{ deal_form.developer_name.id_for_label }}">Developer</label>{{ deal_form.developer_name }}
+          <label for="{{ deal_form.role_title.id_for_label }}">Placed as</label>{{ deal_form.role_title }}
+          <div class="grid" style="gap:.6rem">
+            <div><label for="{{ deal_form.salary.id_for_label }}">Salary (we pay)</label>{{ deal_form.salary }}</div>
+            <div><label for="{{ deal_form.client_rate.id_for_label }}">Client rate (we charge)</label>{{ deal_form.client_rate }}</div>
+          </div>
+          <div class="grid" style="gap:.6rem">
+            <div><label for="{{ deal_form.currency.id_for_label }}">Currency</label>{{ deal_form.currency }}</div>
+            <div><label for="{{ deal_form.signed_date.id_for_label }}">Date signed</label>{{ deal_form.signed_date }}</div>
+          </div>
+          <label for="{{ deal_form.notes.id_for_label }}">Notes</label>{{ deal_form.notes }}
+          <label>Agreements (optional)</label>
+          <input type="file" name="documents" multiple>
+          <div style="margin-top:.8rem"><button type="submit">Record deal</button></div>
+        </form>
+      </details>
+    </div>
+  </div>
+{% endblock %}

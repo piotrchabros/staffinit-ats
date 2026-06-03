@@ -22,4 +22,12 @@ urlpatterns = [
     path("roles/<int:pk>/candidate/<int:candidate_id>/anon-cv/generate/", views.generate_anonymized_cv, name="generate_anonymized_cv"),
     path("roles/<int:pk>/candidate/<int:candidate_id>/evaluation/", views.evaluation_detail, name="evaluation_detail"),
     path("roles/<int:pk>/candidate/<int:candidate_id>/evaluation/generate/", views.generate_evaluation, name="generate_evaluation"),
+    # Mini-CRM
+    path("crm/", views.company_list, name="company_list"),
+    path("crm/companies/add/", views.add_company, name="add_company"),
+    path("crm/companies/<int:pk>/", views.company_detail, name="company_detail"),
+    path("crm/companies/<int:pk>/people/add/", views.add_person, name="add_person"),
+    path("crm/companies/<int:pk>/deals/add/", views.add_deal, name="add_deal"),
+    path("crm/deals/<int:pk>/", views.deal_detail, name="deal_detail"),
+    path("crm/deals/<int:pk>/documents/add/", views.add_deal_document, name="add_deal_document"),
 ]

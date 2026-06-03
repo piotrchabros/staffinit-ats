@@ -1,6 +1,20 @@
 from django.contrib import admin
 
-from .models import AnonymizedCV, CV, Candidate, CandidateUpload, Evaluation, Role, Rubric, Score, ScreeningSet
+from .models import (
+    AnonymizedCV,
+    CV,
+    Candidate,
+    CandidateUpload,
+    Company,
+    Deal,
+    DealDocument,
+    Evaluation,
+    Person,
+    Role,
+    Rubric,
+    Score,
+    ScreeningSet,
+)
 
 
 @admin.register(Candidate)
@@ -70,3 +84,36 @@ class CandidateUploadAdmin(admin.ModelAdmin):
     list_display = ("original_filename", "role", "status", "candidate", "created_at")
     list_filter = ("status",)
     raw_id_fields = ("role", "candidate")
+
+
+class PersonInline(admin.TabularInline):
+    model = Person
+    extra = 0
+
+
+@admin.register(Company)
+class CompanyAdmin(admin.ModelAdmin):
+    list_display = ("name", "website", "created_at")
+    search_fields = ("name",)
+    inlines = [PersonInline]
+
+
+@admin.register(Person)
+class PersonAdmin(admin.ModelAdmin):
+    list_display = ("full_name", "company", "title", "email", "phone")
+    search_fields = ("full_name", "email")
+    raw_id_fields = ("company",)
+
+
+class DealDocumentInline(admin.TabularInline):
+    model = DealDocument
+    extra = 0
+
+
+@admin.register(Deal)
+class DealAdmin(admin.ModelAdmin):
+    list_display = ("developer_name", "company", "salary", "client_rate", "currency", "signed_date")
+    list_filter = ("currency", "company")
+    search_fields = ("developer_name",)
+    raw_id_fields = ("company", "candidate")
+    inlines = [DealDocumentInline]

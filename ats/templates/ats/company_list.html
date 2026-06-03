@@ -1,0 +1,39 @@
+{% extends "ats/base.html" %}
+{% block title %}CRM — StaffInit ATS{% endblock %}
+{% block content %}
+  <h1>Companies</h1>
+
+  <form method="get" style="display:flex; gap:.5rem; margin:0 0 1rem; max-width:560px">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search companies or contacts…">
+    <button type="submit">Search</button>
+    {% if q %}<a class="btn secondary" href="{% url 'company_list' %}">Clear</a>{% endif %}
+  </form>
+
+  <details class="card" {% if not companies %}open{% endif %}>
+    <summary><strong>+ Add company</strong></summary>
+    <form method="post" action="{% url 'add_company' %}" style="margin-top:.8rem">
+      {% csrf_token %}
+      <label for="{{ form.name.id_for_label }}">Name</label>{{ form.name }}
+      <label for="{{ form.website.id_for_label }}">Website</label>{{ form.website }}
+      <label for="{{ form.notes.id_for_label }}">Notes</label>{{ form.notes }}
+      <div style="margin-top:.8rem"><button type="submit">Add company</button></div>
+    </form>
+  </details>
+
+  {% if companies %}
+    <table style="margin-top:1.25rem">
+      <thead><tr><th scope="col">Company</th><th scope="col">Contacts</th><th scope="col">Deals</th></tr></thead>
+      <tbody>
+        {% for c in companies %}
+          <tr>
+            <td data-label="Company"><a href="{% url 'company_detail' c.pk %}">{{ c.name }}</a></td>
+            <td data-label="Contacts">{{ c.n_people }}</td>
+            <td data-label="Deals">{{ c.n_deals }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted" style="margin-top:1rem">{% if q %}No companies match “{{ q }}”.{% else %}No companies yet — add one above.{% endif %}</p>
+  {% endif %}
+{% endblock %}

@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import Role
+from .models import Company, Deal, Person, Role
 
 
 class RoleForm(forms.ModelForm):
@@ -58,3 +58,37 @@ class PasteTextForm(forms.Form):
     parsed_text = forms.CharField(
         widget=forms.Textarea(attrs={"rows": 10, "placeholder": "Paste the CV text"}),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Mini-CRM forms                                                              #
+# --------------------------------------------------------------------------- #
+class CompanyForm(forms.ModelForm):
+    class Meta:
+        model = Company
+        fields = ["name", "website", "notes"]
+        widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
+
+
+class PersonForm(forms.ModelForm):
+    """A contact at a company. The company is set by the view, not the form."""
+
+    class Meta:
+        model = Person
+        fields = ["full_name", "title", "email", "phone", "notes"]
+        widgets = {"notes": forms.Textarea(attrs={"rows": 2})}
+
+
+class DealForm(forms.ModelForm):
+    """A signed placement. The company is set by the view, not the form."""
+
+    class Meta:
+        model = Deal
+        fields = [
+            "developer_name", "role_title", "salary", "client_rate",
+            "currency", "signed_date", "notes",
+        ]
+        widgets = {
+            "signed_date": forms.DateInput(attrs={"type": "date"}),
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }

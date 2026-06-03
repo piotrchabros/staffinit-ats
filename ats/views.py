@@ -27,7 +27,14 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from ats import tasks
-from ats.forms import AddCandidateForm, PasteTextForm, RoleForm
+from ats.forms import (
+    AddCandidateForm,
+    CompanyForm,
+    DealForm,
+    PasteTextForm,
+    PersonForm,
+    RoleForm,
+)
 from ats.ingestion.parse import extract_text
 from ats.scoring import contact
 from ats.models import (
@@ -35,7 +42,11 @@ from ats.models import (
     CV,
     Candidate,
     CandidateUpload,
+    Company,
+    Deal,
+    DealDocument,
     Evaluation,
+    Person,
     PipelineCard,
     Role,
     Rubric,
@@ -483,3 +494,110 @@ def generate_evaluation(request, pk, candidate_id):
     tasks.generate_evaluation_task.defer(eval_id=ev.pk)
     messages.success(request, f"Evaluating {candidate.full_name} from the transcript.")
     return redirect("evaluation_detail", pk=role.pk, candidate_id=candidate.pk)
+
+
+# --------------------------------------------------------------------------- #
+# Mini-CRM: companies -> people -> deals (+ documents)                        #
+# --------------------------------------------------------------------------- #
+@login_required
+def company_list(request):
+    """Searchable list of customer companies, with deal counts."""
+    q = (request.GET.get("q") or "").strip()
+    companies = Company.objects.all()
+    if q:
+        companies = companies.filter(
+            Q(name__icontains=q) | Q(people__full_name__icontains=q)
+        ).distinct()
+    companies = companies.annotate(
+        n_people=Count("people", distinct=True),
+        n_deals=Count("deals", distinct=True),
+    ).order_by("name")
+    return render(request, "ats/company_list.html", {
+        "companies": companies, "q": q, "form": CompanyForm(),
+    })
+
+
+@login_required
+@require_POST
+def add_company(request):
+    form = CompanyForm(request.POST)
+    if form.is_valid():
+        company = form.save()
+        messages.success(request, f"Added company “{company.name}”.")
+        return redirect("company_detail", pk=company.pk)
+    messages.error(request, "; ".join(f"{k}: {', '.join(v)}" for k, v in form.errors.items()))
+    return redirect("company_list")
+
+
+@login_required
+def company_detail(request, pk):
+    """A company with its contacts and signed deals (+ add forms)."""
+    company = get_object_or_404(Company, pk=pk)
+    deals = company.deals.prefetch_related("documents")
+    return render(request, "ats/company_detail.html", {
+        "company": company,
+        "people": company.people.all(),
+        "deals": deals,
+        "person_form": PersonForm(),
+        "deal_form": DealForm(),
+    })
+
+
+@login_required
+@require_POST
+def add_person(request, pk):
+    company = get_object_or_404(Company, pk=pk)
+    form = PersonForm(request.POST)
+    if form.is_valid():
+        person = form.save(commit=False)
+        person.company = company
+        person.save()
+        messages.success(request, f"Added contact {person.full_name}.")
+    else:
+        messages.error(request, "; ".join(f"{k}: {', '.join(v)}" for k, v in form.errors.items()))
+    return redirect("company_detail", pk=company.pk)
+
+
+@login_required
+@require_POST
+def add_deal(request, pk):
+    company = get_object_or_404(Company, pk=pk)
+    form = DealForm(request.POST)
+    if form.is_valid():
+        deal = form.save(commit=False)
+        deal.company = company
+        deal.save()
+        # Optional documents dropped alongside the deal form.
+        for f in request.FILES.getlist("documents"):
+            DealDocument.objects.create(
+                deal=deal, file=f, original_filename=(getattr(f, "name", "") or "")[:255]
+            )
+        messages.success(request, f"Signed deal recorded: {deal.developer_name}.")
+        return redirect("deal_detail", pk=deal.pk)
+    messages.error(request, "; ".join(f"{k}: {', '.join(v)}" for k, v in form.errors.items()))
+    return redirect("company_detail", pk=company.pk)
+
+
+@login_required
+def deal_detail(request, pk):
+    """A single deal with its economics and uploaded agreements."""
+    deal = get_object_or_404(Deal.objects.select_related("company"), pk=pk)
+    return render(request, "ats/deal_detail.html", {
+        "deal": deal, "documents": deal.documents.all(),
+    })
+
+
+@login_required
+@require_POST
+def add_deal_document(request, pk):
+    deal = get_object_or_404(Deal, pk=pk)
+    files = request.FILES.getlist("documents")
+    for f in files:
+        DealDocument.objects.create(
+            deal=deal, file=f, original_filename=(getattr(f, "name", "") or "")[:255]
+        )
+    if files:
+        messages.success(request, f"Uploaded {len(files)} document(s).")
+    else:
+        messages.error(request, "Choose at least one file to upload.")
+    return redirect("deal_detail", pk=deal.pk)

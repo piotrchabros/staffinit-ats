@@ -491,3 +491,98 @@ class PipelineCard(models.Model):
 
     def __str__(self):
         return f"Card<role={self.role_id} cand={self.candidate_id}>"
+
+
+# --------------------------------------------------------------------------- #
+# Mini-CRM: customers (Company) -> contacts (Person) -> signed Deals + docs    #
+# --------------------------------------------------------------------------- #
+class Company(models.Model):
+    """A customer company we place developers with."""
+
+    name = models.CharField(max_length=255, unique=True)
+    website = models.URLField(blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "companies"
+
+    def __str__(self):
+        return self.name
+
+
+class Person(models.Model):
+    """A human contact at a customer company (hiring manager, procurement, etc.)."""
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="people")
+    full_name = models.CharField(max_length=255)
+    title = models.CharField(max_length=255, blank=True, help_text="Their role at the company.")
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=64, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["full_name"]
+        verbose_name_plural = "people"
+
+    def __str__(self):
+        return f"{self.full_name} @ {self.company.name}"
+
+
+class Deal(models.Model):
+    """A signed placement: a developer we contracted out to a customer.
+
+    We track both sides of the economics — what we pay the developer (`salary`)
+    and what the customer pays us (`client_rate`) — so the margin is derivable.
+    The developer optionally links to a Candidate in the ATS; `developer_name` is
+    a snapshot so the deal record survives candidate erasure (GDPR) and covers
+    developers who were never in the pipeline. Signed agreements attach as
+    DealDocument rows.
+    """
+
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="deals")
+    # Link to the ATS candidate when known; SET_NULL keeps the deal (and the
+    # name snapshot) intact if the candidate is later erased.
+    candidate = models.ForeignKey(
+        Candidate, on_delete=models.SET_NULL, null=True, blank=True, related_name="deals"
+    )
+    developer_name = models.CharField(max_length=255, help_text="The developer signed (snapshot).")
+    role_title = models.CharField(max_length=255, blank=True, help_text="What they were placed as.")
+    # Monthly amounts. salary = what we pay the dev; client_rate = what the
+    # customer pays us. Same currency; margin = client_rate - salary.
+    salary = models.DecimalField(max_digits=12, decimal_places=2)
+    client_rate = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=8, default="PLN")
+    signed_date = models.DateField()
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["-signed_date", "-id"]
+
+    def __str__(self):
+        return f"{self.developer_name} → {self.company.name} ({self.signed_date})"
+
+    @property
+    def margin(self):
+        """What we make on the placement (client_rate - salary), or None if unset."""
+        if self.client_rate is None or self.salary is None:
+            return None
+        return self.client_rate - self.salary
+
+
+class DealDocument(models.Model):
+    """An uploaded agreement / document attached to a deal."""
+
+    deal = models.ForeignKey(Deal, on_delete=models.CASCADE, related_name="documents")
+    file = models.FileField(upload_to="deals/%Y/%m/")
+    original_filename = models.CharField(max_length=255, blank=True)
+    uploaded_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["-uploaded_at"]
+
+    def __str__(self):
+        return self.original_filename or f"Document<{self.pk}>"

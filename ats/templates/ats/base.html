@@ -125,6 +125,7 @@
     {% if user.is_authenticated %}
       <a href="{% url 'role_list' %}" style="margin-left:1rem">Roles</a>
       <a href="{% url 'candidate_list' %}">Candidates</a>
+      <a href="{% url 'company_list' %}">CRM</a>
     {% endif %}
     <span class="spacer"></span>
     {% if user.is_authenticated %}
